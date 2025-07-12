@@ -18,7 +18,7 @@ interface Player {
   color: string
   percentage: number
   isParticipant: boolean
-  isPremium?: boolean
+  // isPremium?: boolean // Удалено
 }
 
 interface GameState {
@@ -67,7 +67,7 @@ export default function TelegramRouletteApp() {
       color: isParticipant ? playerColors[participantCount % playerColors.length] : "",
       percentage: 0,
       isParticipant,
-      isPremium: telegramUser.is_premium,
+      // isPremium: telegramUser.is_premium, // Удалено
     }
   }
 
@@ -83,14 +83,14 @@ export default function TelegramRouletteApp() {
         last_name: "Crypto",
         username: "alexkrypto",
         language_code: "ru",
-        is_premium: true,
+        // is_premium: true, // Удалено
       },
       {
         id: 987654321,
         first_name: "Maria",
         username: "mariaweb3",
         language_code: "en",
-        is_premium: false,
+        // is_premium: false, // Удалено
       },
       {
         id: 456789123,
@@ -98,7 +98,7 @@ export default function TelegramRouletteApp() {
         last_name: "King",
         username: "cryptoking",
         language_code: "ru",
-        is_premium: true,
+        // is_premium: true, // Удалено
       },
       {
         id: 789123456,
@@ -106,7 +106,7 @@ export default function TelegramRouletteApp() {
         last_name: "Queen",
         username: "nftqueen",
         language_code: "en",
-        is_premium: false,
+        // is_premium: false, // Удалено
       },
       {
         id: 321654987,
@@ -114,7 +114,7 @@ export default function TelegramRouletteApp() {
         last_name: "Master",
         username: "tonmaster",
         language_code: "ru",
-        is_premium: true,
+        // is_premium: true, // Удалено
       },
     ]
 
@@ -290,7 +290,7 @@ export default function TelegramRouletteApp() {
 
   const segments = getWheelSegments()
   const participants = gameState.players.filter((p) => p.isParticipant)
-  const observers = allPlayersInRoom.filter((p) => !p.isParticipant)
+  // const observers = allPlayersInRoom.filter((p) => !p.isParticipant) // Больше не используется отдельно
 
   const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
 
@@ -300,6 +300,18 @@ export default function TelegramRouletteApp() {
     if (count >= 2 && count <= 4) return `${count} подарка`
     return `${count} подарков`
   }
+
+  // Эффект для блокировки прокрутки фона при открытом модале игроков
+  useEffect(() => {
+    if (showPlayersModal) {
+      document.body.style.overflow = "hidden"
+    } else {
+      document.body.style.overflow = ""
+    }
+    return () => {
+      document.body.style.overflow = "" // Очистка при размонтировании
+    }
+  }, [showPlayersModal])
 
   // Показываем загрузку пока не готов Telegram
   if (!isReady) {
@@ -315,32 +327,31 @@ export default function TelegramRouletteApp() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-x-hidden mobile-content-padding">
-      {/* Счетчик игроков в комнате */}
-      <div className="absolute top-4 left-4 z-20">
+      {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
+      <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
+        {/* Счетчик игроков в комнате */}
         <Button
           variant="ghost"
           size="sm"
-          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white"
+          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center"
           onClick={() => {
             hapticFeedback.selection()
             setShowPlayersModal(true)
           }}
         >
           <Eye className="w-4 h-4 mr-2" />
-          <span className="text-sm">Игроков: {allPlayersInRoom.length}</span>
+          <span className="text-sm whitespace-nowrap">Игроков: {allPlayersInRoom.length}</span>
         </Button>
-      </div>
 
-      {/* Информация о текущем пользователе */}
-      {user && (
-        <div className="absolute top-4 right-4 z-20">
-          <div className="bg-black/60 border border-gray-600 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2">
+        {/* Информация о текущем пользователе */}
+        {user && (
+          <div className="bg-black/60 border border-gray-600 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 h-10">
             <img src={getUserPhotoUrl(user) || "/placeholder.svg"} alt="Avatar" className="w-6 h-6 rounded-full" />
-            <span className="text-sm text-white">{getUserDisplayName(user)}</span>
-            {user.is_premium && <span className="text-xs text-yellow-400">⭐</span>}
+            <span className="text-sm text-white whitespace-nowrap">{getUserDisplayName(user)}</span>
+            {/* {user.is_premium && <span className="text-xs text-yellow-400">⭐</span>} // Удалено */}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Общий банк */}
       <div className="flex items-center justify-center mb-4 pt-16 relative z-10">
@@ -528,7 +539,7 @@ export default function TelegramRouletteApp() {
                     />
                     <div>
                       <span className="text-white font-medium">{player.displayName}</span>
-                      {player.isPremium && <span className="text-yellow-400 ml-1">⭐</span>}
+                      {/* {player.isPremium && <span className="text-yellow-400 ml-1">⭐</span>} // Удалено */}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -569,59 +580,37 @@ export default function TelegramRouletteApp() {
             </div>
 
             <div className="overflow-y-auto max-h-[60vh] p-4">
-              {/* Участники */}
-              {participants.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-medium text-green-400 mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                    Участники ({participants.length})
-                  </h3>
-                  <div className="space-y-2">
-                    {participants.map((player) => (
-                      <div key={player.id} className="flex items-center gap-3 p-2 bg-gray-800/50 rounded-lg">
-                        <img
-                          src={player.avatar || "/placeholder.svg"}
-                          alt="Player"
-                          className="w-8 h-8 rounded-full object-cover"
-                          style={{ border: `2px solid ${player.color}` }}
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-1">
-                            <span className="text-white font-medium">{player.displayName}</span>
-                            {player.isPremium && <span className="text-yellow-400">⭐</span>}
-                          </div>
+              {allPlayersInRoom.length === 0 ? (
+                <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
+              ) : (
+                <div className="space-y-2">
+                  {allPlayersInRoom.map((player) => (
+                    <div
+                      key={player.id}
+                      className={`flex items-center gap-3 p-2 rounded-lg ${
+                        player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
+                      }`}
+                    >
+                      <img
+                        src={player.avatar || "/placeholder.svg"}
+                        alt="Player"
+                        className="w-8 h-8 rounded-full object-cover"
+                        style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-white font-medium">{player.displayName}</span>
+                          {/* {player.isPremium && <span className="text-yellow-400">⭐</span>} // Удалено */}
+                        </div>
+                        {player.isParticipant && (
                           <div className="text-xs text-gray-400">
                             {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
                           </div>
-                        </div>
+                        )}
+                        {!player.isParticipant && <div className="text-xs text-gray-500">Наблюдатель</div>}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Наблюдатели */}
-              {observers.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
-                    <Eye className="w-3 h-3" />
-                    Наблюдатели ({observers.length})
-                  </h3>
-                  <div className="space-y-2">
-                    {observers.map((player) => (
-                      <div key={player.id} className="flex items-center gap-3 p-2 bg-gray-800/30 rounded-lg">
-                        <img
-                          src={player.avatar || "/placeholder.svg"}
-                          alt="Observer"
-                          className="w-8 h-8 rounded-full object-cover border-2 border-gray-600"
-                        />
-                        <div className="flex items-center gap-1">
-                          <span className="text-gray-300 font-medium">{player.displayName}</span>
-                          {player.isPremium && <span className="text-yellow-400">⭐</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -650,7 +639,7 @@ export default function TelegramRouletteApp() {
             />
             <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
               {gameState.winner.displayName}
-              {gameState.winner.isPremium && <span className="text-yellow-400">⭐</span>}
+              {/* {gameState.winner.isPremium && <span className="text-yellow-400">⭐</span>} // Удалено */}
             </div>
             <div className="text-sm text-gray-400 mb-4">Выиграл {gameState.totalTon.toFixed(1)} ТОН</div>
             <div className="text-xs text-gray-500">Шанс победы: {gameState.winner.percentage.toFixed(1)}%</div>
