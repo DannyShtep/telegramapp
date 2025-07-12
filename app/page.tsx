@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Plus, Loader2, X } from "lucide-react"
+import { Plus, X } from "lucide-react"
 
 interface Player {
   id: string
@@ -25,7 +25,6 @@ interface GameState {
 }
 
 export default function TelegramRouletteApp() {
-  const [isLoading, setIsLoading] = useState(true)
   const [gameState, setGameState] = useState<GameState>({
     status: "waiting",
     players: [],
@@ -41,15 +40,6 @@ export default function TelegramRouletteApp() {
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
-
-  // Загрузочный экран
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 4000)
-
-    return () => clearTimeout(timer)
-  }, [])
 
   const addPlayer = useCallback(
     (isGift = true, tonAmountToAdd?: number) => {
@@ -185,29 +175,6 @@ export default function TelegramRouletteApp() {
   const segments = getWheelSegments()
 
   // Загрузочный экран
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Абстрактный фон */}
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-10 left-10 w-32 h-32 bg-green-500/10 rounded-full blur-xl"></div>
-          <div className="absolute top-1/3 right-20 w-48 h-48 bg-green-400/5 rounded-full blur-2xl"></div>
-          <div className="absolute bottom-20 left-1/4 w-40 h-40 bg-green-600/10 rounded-full blur-xl"></div>
-          <div className="absolute bottom-1/3 right-1/3 w-24 h-24 bg-green-500/15 rounded-full blur-lg"></div>
-        </div>
-
-        {/* Логотип */}
-        <div className="relative z-10 mb-8">
-          <img src="/grinch-logo.jpeg" alt="The Grinch Roulette" className="w-80 h-auto max-w-sm" />
-        </div>
-
-        {/* Анимированная иконка загрузки */}
-        <div className="relative z-10">
-          <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
-        </div>
-      </div>
-    )
-  }
 
   // Определяем класс размера шрифта для кнопки "Добавить ТОН"
   // Используем text-xs для двузначных чисел, чтобы гарантировать, что они поместятся
@@ -255,14 +222,17 @@ export default function TelegramRouletteApp() {
         >
           {gameState.status === "waiting" ? (
             // Серое колесо для ожидания
-            <div className="w-full h-full bg-gray-600 relative">
+            <div className="w-full h-full bg-gray-600 rounded-full relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
                 <span className="text-gray-300 text-sm font-medium">Ожидание</span>
               </div>
             </div>
           ) : gameState.status === "single_player" ? (
             // Одноцветное колесо для одного игрока
-            <div className="w-full h-full relative" style={{ backgroundColor: gameState.players[0]?.color }}>
+            <div
+              className="w-full h-full rounded-full relative"
+              style={{ backgroundColor: gameState.players[0]?.color }}
+            >
               {/* Аватар игрока */}
               <div className="absolute top-16 left-16 w-8 h-8 rounded-full overflow-hidden border-2 border-white">
                 <div
