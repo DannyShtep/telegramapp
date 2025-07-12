@@ -560,8 +560,12 @@ export default function TelegramRouletteApp() {
       {/* Модал со списком всех игроков в комнате */}
       {showPlayersModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <Card className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] overflow-hidden relative">
-            <div className="flex items-center justify-between p-4 border-b border-gray-600">
+          <Card className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] relative flex flex-col">
+            {" "}
+            {/* Добавлены flex flex-col */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0">
+              {" "}
+              {/* Добавлен flex-shrink-0 */}
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-green-400" />
                 <h2 className="text-lg font-bold text-white">Игроки в комнате</h2>
@@ -578,8 +582,9 @@ export default function TelegramRouletteApp() {
                 <X className="w-4 h-4" />
               </Button>
             </div>
-
-            <div className="overflow-y-auto max-h-[60vh] p-4">
+            <div className="flex-1 overflow-y-auto p-4">
+              {" "}
+              {/* Изменено на flex-1 overflow-y-auto, удален max-h */}
               {allPlayersInRoom.length === 0 ? (
                 <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
               ) : (
