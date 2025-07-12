@@ -12,7 +12,6 @@ export const metadata: Metadata = {
   other: {
     "telegram-web-app": "true",
   },
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -22,6 +21,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
+      <head>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+      </head>
       <body className={`${inter.className} overflow-x-hidden`} style={{ userSelect: "none", WebkitUserSelect: "none" }}>
         {children}
       </body>
