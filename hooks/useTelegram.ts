@@ -23,6 +23,9 @@ export function useTelegram() {
       tg.headerColor = "#1f2937"
       tg.backgroundColor = "#111827"
 
+      // Отключаем вертикальные свайпы для предотвращения сворачивания
+      tg.disableVerticalSwipes(true)
+
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
@@ -37,7 +40,7 @@ export function useTelegram() {
         last_name: "User",
         username: "testuser",
         language_code: "ru",
-        is_premium: false,
+        // is_premium: true, // Удалено для соответствия запросу
       }
       setUser(mockUser)
       setIsReady(true)
