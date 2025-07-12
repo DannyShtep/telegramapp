@@ -1,107 +1,127 @@
-"use client"
+export interface TelegramUser {
+  id: number
+  first_name: string
+  last_name?: string
+  username?: string
+  language_code?: string
+  is_premium?: boolean // Оставляем для соответствия API, но не используем в UI
+  photo_url?: string
+}
 
-import { useEffect, useState } from "react"
-import type { TelegramWebApp, TelegramUser } from "../types/telegram"
-
-export function useTelegram() {
-  const [webApp, setWebApp] = useState<TelegramWebApp | null>(null)
-  const [user, setUser] = useState<TelegramUser | null>(null)
-  const [isReady, setIsReady] = useState(false)
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp
-      setWebApp(tg)
-
-      // Инициализируем WebApp
-      tg.ready()
-
-      // Расширяем на весь экран
-      tg.expand()
-
-      // Устанавливаем цвета темы
-      tg.headerColor = "#1f2937"
-      tg.backgroundColor = "#111827"
-
-      // Получаем данные пользователя
-      if (tg.initDataUnsafe?.user) {
-        setUser(tg.initDataUnsafe.user)
-      }
-
-      setIsReady(true)
-    } else {
-      // Для разработки - создаем моковые данные
-      const mockUser: TelegramUser = {
-        id: Math.floor(Math.random() * 1000000),
-        first_name: "Test",
-        last_name: "User",
-        username: "testuser",
-        language_code: "ru",
-        is_premium: false,
-      }
-      setUser(mockUser)
-      setIsReady(true)
-    }
-  }, [])
-
-  const hapticFeedback = {
-    impact: (style: "light" | "medium" | "heavy" | "rigid" | "soft" = "medium") => {
-      webApp?.HapticFeedback.impactOccurred(style)
+export interface TelegramWebApp {
+  initData: string
+  initDataUnsafe: {
+    query_id?: string
+    user?: TelegramUser
+    receiver?: TelegramUser
+    chat?: any
+    chat_type?: string
+    chat_instance?: string
+    start_param?: string
+    can_send_after?: number
+    auth_date: number
+    hash: string
+  }
+  version: string
+  platform: string
+  colorScheme: "light" | "dark"
+  themeParams: {
+    link_color?: string
+    button_color?: string
+    button_text_color?: string
+    secondary_bg_color?: string
+    hint_color?: string
+    bg_color?: string
+    text_color?: string
+  }
+  isExpanded: boolean
+  viewportHeight: number
+  viewportStableHeight: number
+  headerColor: string
+  backgroundColor: string
+  BackButton: {
+    isVisible: boolean
+    show(): void
+    hide(): void
+    onClick(callback: () => void): void
+    offClick(callback: () => void): void
+  }
+  MainButton: {
+    text: string
+    color: string
+    textColor: string
+    isVisible: boolean
+    isActive: boolean
+    isProgressVisible: boolean
+    setText(text: string): void
+    onClick(callback: () => void): void
+    offClick(callback: () => void): void
+    show(): void
+    hide(): void
+    enable(): void
+    disable(): void
+    showProgress(leaveActive?: boolean): void
+    hideProgress(): void
+    setParams(params: {
+      text?: string
+      color?: string
+      text_color?: string
+      is_active?: boolean
+      is_visible?: boolean
+    }): void
+  }
+  HapticFeedback: {
+    impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void
+    notificationOccurred(type: "error" | "success" | "warning"): void
+    selectionChanged(): void
+  }
+  CloudStorage: {
+    setItem(key: string, value: string, callback?: (error: string | null, success: boolean) => void): void
+    getItem(key: string, callback: (error: string | null, value: string | null) => void): void
+    getItems(keys: string[], callback: (error: string | null, values: Record<string, string>) => void): void
+    removeItem(key: string, callback?: (error: string | null, success: boolean) => void): void
+    removeItems(keys: string[], callback?: (error: string | null, success: boolean) => void): void
+    getKeys(callback: (error: string | null, keys: string[]) => void): void
+  }
+  ready(): void
+  expand(): void
+  close(): void
+  sendData(data: string): void
+  openLink(url: string, options?: { try_instant_view?: boolean }): void
+  openTelegramLink(url: string): void
+  openInvoice(url: string, callback?: (status: string) => void): void
+  showPopup(
+    params: {
+      title?: string
+      message: string
+      buttons?: Array<{
+        id?: string
+        type?: "default" | "ok" | "close" | "cancel" | "destructive"
+        text?: string
+      }>
     },
-    notification: (type: "error" | "success" | "warning") => {
-      webApp?.HapticFeedback.notificationOccurred(type)
+    callback?: (buttonId: string) => void,
+  ): void
+  showAlert(message: string, callback?: () => void): void
+  showConfirm(message: string, callback?: (confirmed: boolean) => void): void
+  showScanQrPopup(
+    params: {
+      text?: string
     },
-    selection: () => {
-      webApp?.HapticFeedback.selectionChanged()
-    },
-  }
+    callback?: (text: string) => boolean,
+  ): void
+  closeScanQrPopup(): void
+  readTextFromClipboard(callback?: (text: string) => void): void
+  requestWriteAccess(callback?: (granted: boolean) => void): void
+  requestContact(callback?: (granted: boolean, contact?: any) => void): void
+  isVersionAtLeast(version: string): boolean
+  disableVerticalSwipes(disable?: boolean): void // Добавлено для блокировки свайпов
+}
 
-  const showAlert = (message: string) => {
-    if (webApp) {
-      webApp.showAlert(message)
-    } else {
-      alert(message)
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp: TelegramWebApp
     }
-  }
-
-  const showConfirm = (message: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      if (webApp) {
-        webApp.showConfirm(message, resolve)
-      } else {
-        resolve(confirm(message))
-      }
-    })
-  }
-
-  const close = () => {
-    webApp?.close()
-  }
-
-  const getUserPhotoUrl = (user: TelegramUser): string => {
-    if (user.photo_url) {
-      return user.photo_url
-    }
-    // Fallback к Dicebear с использованием user ID
-    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
-  }
-
-  const getUserDisplayName = (user: TelegramUser): string => {
-    if (user.username) {
-      return `@${user.username}`
-    }
-    return `${user.first_name}${user.last_name ? " " + user.last_name : ""}`
-  }
-
-  return {
-    webApp,
-    user,
-    isReady,
-    hapticFeedback,
-    showAlert,
-    showConfirm,
-    close,
-    getUserPhotoUrl,
-    getUserDisplayName,
   }
 }
