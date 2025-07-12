@@ -104,15 +104,15 @@ body {
   -ms-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* Добавляем поддержку safe area для мобильных устройств */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Мобильная адаптация */
 @media (max-width: 480px) {
   .min-h-screen {
     min-height: 100vh;
-    min-height: 100dvh; /* Для современных браузеров */
-    height: 100vh;
-    height: 100dvh;
+    min-height: 100dvh;
   }
 
   /* Убираем возможность зума */
@@ -130,6 +130,19 @@ body {
   .cursor-pointer {
     -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
   }
+
+  /* Специальные стили для нижнего бара на мобильных */
+  .mobile-bottom-bar {
+    bottom: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    /* Добавляем минимальный отступ снизу для лучшего доступа */
+    margin-bottom: 0;
+  }
+
+  /* Добавляем отступ для контента, чтобы он не перекрывался с нижним баром */
+  .mobile-content-padding {
+    padding-bottom: calc(80px + max(12px, env(safe-area-inset-bottom)));
+  }
 }
 
 /* Адаптация для разных размеров экранов */
@@ -140,6 +153,15 @@ body {
   }
   .h-80 {
     height: 280px !important;
+  }
+
+  /* Уменьшаем высоту нижнего бара на маленьких экранах */
+  .mobile-bottom-bar {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .mobile-content-padding {
+    padding-bottom: calc(75px + max(8px, env(safe-area-inset-bottom)));
   }
 }
 
@@ -160,6 +182,17 @@ body {
   }
   .h-80 {
     height: 320px !important;
+  }
+}
+
+/* Специальные стили для iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  .mobile-bottom-bar {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .mobile-content-padding {
+    padding-bottom: calc(85px + max(16px, env(safe-area-inset-bottom)));
   }
 }
 
@@ -206,3 +239,4 @@ svg path:hover {
     padding-right: 1.5rem;
   }
 }
+
