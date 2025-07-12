@@ -47,7 +47,7 @@ export default function TelegramRouletteApp() {
   const [showPlayersModal, setShowPlayersModal] = useState(false)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
-  // Список всех игроков в комнате (включая наблюдателей)
+  // Список всех игроков в комнате (включая моковых пользователей)
   const [allPlayersInRoom, setAllPlayersInRoom] = useState<Player[]>([])
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
@@ -71,61 +71,29 @@ export default function TelegramRouletteApp() {
     }
   }
 
-  // Инициализация наблюдателей при загрузке
+  // Инициализация пользователей в комнате (включая моковых)
   useEffect(() => {
     if (!isReady) return
 
     // Моковые данные других пользователей в комнате
     const mockTelegramUsers: TelegramUser[] = [
-      {
-        id: 123456789,
-        first_name: "Alex",
-        last_name: "Crypto",
-        username: "alexkrypto",
-        language_code: "ru",
-        // is_premium: true, // Удалено
-      },
-      {
-        id: 987654321,
-        first_name: "Maria",
-        username: "mariaweb3",
-        language_code: "en",
-        // is_premium: false, // Удалено
-      },
-      {
-        id: 456789123,
-        first_name: "Crypto",
-        last_name: "King",
-        username: "cryptoking",
-        language_code: "ru",
-        // is_premium: true, // Удалено
-      },
-      {
-        id: 789123456,
-        first_name: "NFT",
-        last_name: "Queen",
-        username: "nftqueen",
-        language_code: "en",
-        // is_premium: false, // Удалено
-      },
-      {
-        id: 321654987,
-        first_name: "Ton",
-        last_name: "Master",
-        username: "tonmaster",
-        language_code: "ru",
-        // is_premium: true, // Удалено
-      },
+      { id: 123456789, first_name: "Alex", username: "alexkrypto", language_code: "ru" },
+      { id: 987654321, first_name: "Maria", username: "mariaweb3", language_code: "en" },
+      { id: 456789123, first_name: "Crypto", username: "cryptoking", language_code: "ru" },
+      { id: 789123456, first_name: "NFT", username: "nftqueen", language_code: "en" },
+      { id: 321654987, first_name: "Ton", username: "tonmaster", language_code: "ru" },
+      { id: 654321987, first_name: "Lena", username: "lenaton", language_code: "ru" },
+      { id: 112233445, first_name: "Max", username: "max_nft", language_code: "en" },
     ]
 
-    const mockObservers = mockTelegramUsers.map((telegramUser) => createPlayerFromTelegramUser(telegramUser, false))
+    const initialRoomUsers = mockTelegramUsers.map((telegramUser) => createPlayerFromTelegramUser(telegramUser, false))
 
-    // Добавляем текущего пользователя как наблюдателя, если он есть
-    if (user) {
-      const currentUserAsObserver = createPlayerFromTelegramUser(user, false)
-      setAllPlayersInRoom([currentUserAsObserver, ...mockObservers])
+    // Добавляем текущего пользователя, если он есть и еще не добавлен
+    if (user && !initialRoomUsers.some((p) => p.telegramId === user.id)) {
+      const currentUserAsOnline = createPlayerFromTelegramUser(user, false)
+      setAllPlayersInRoom([currentUserAsOnline, ...initialRoomUsers])
     } else {
-      setAllPlayersInRoom(mockObservers)
+      setAllPlayersInRoom(initialRoomUsers)
     }
   }, [isReady, user])
 
@@ -140,8 +108,8 @@ export default function TelegramRouletteApp() {
       if (gameState.status === "spinning" || gameState.status === "finished") return
 
       // Проверяем, не участвует ли уже пользователь
-      const existingPlayer = gameState.players.find((p) => p.telegramId === user.id)
-      if (existingPlayer) {
+      const existingParticipant = gameState.players.find((p) => p.telegramId === user.id)
+      if (existingParticipant) {
         hapticFeedback.notification("error")
         showAlert("Вы уже участвуете в игре!")
         return
@@ -177,10 +145,15 @@ export default function TelegramRouletteApp() {
         }
       })
 
-      // Обновляем игрока в общем списке комнаты
-      setAllPlayersInRoom((prev) =>
-        prev.map((p) => (p.telegramId === user.id ? { ...newPlayer, isParticipant: true } : p)),
-      )
+      // Обновляем игрока в общем списке комнаты (текущий пользователь становится участником)
+      setAllPlayersInRoom((prev) => {
+        const updatedRoom = prev.map((p) => (p.telegramId === user.id ? { ...newPlayer, isParticipant: true } : p))
+        // Если текущего пользователя не было в списке, добавляем его
+        if (!updatedRoom.some((p) => p.telegramId === user.id)) {
+          return [...updatedRoom, newPlayer]
+        }
+        return updatedRoom
+      })
     },
     [gameState.status, gameState.countdown, gameState.players, user, hapticFeedback, showAlert],
   )
@@ -290,7 +263,6 @@ export default function TelegramRouletteApp() {
 
   const segments = getWheelSegments()
   const participants = gameState.players.filter((p) => p.isParticipant)
-  // const observers = allPlayersInRoom.filter((p) => !p.isParticipant) // Больше не используется отдельно
 
   const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
 
@@ -333,14 +305,14 @@ export default function TelegramRouletteApp() {
         <Button
           variant="ghost"
           size="sm"
-          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center"
+          className="bg-green-500 hover:bg-green-600 text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center"
           onClick={() => {
             hapticFeedback.selection()
             setShowPlayersModal(true)
           }}
         >
           <Eye className="w-4 h-4 mr-2" />
-          <span className="text-sm whitespace-nowrap">Игроков: {allPlayersInRoom.length}</span>
+          <span className="text-sm whitespace-nowrap">Онлайн: {allPlayersInRoom.length}</span>
         </Button>
 
         {/* Информация о текущем пользователе */}
@@ -561,14 +533,10 @@ export default function TelegramRouletteApp() {
       {showPlayersModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <Card className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] relative flex flex-col">
-            {" "}
-            {/* Добавлены flex flex-col */}
             <div className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0">
-              {" "}
-              {/* Добавлен flex-shrink-0 */}
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-green-400" />
-                <h2 className="text-lg font-bold text-white">Игроки в комнате</h2>
+                <h2 className="text-lg font-bold text-white">Онлайн</h2>
               </div>
               <Button
                 variant="ghost"
@@ -583,8 +551,6 @@ export default function TelegramRouletteApp() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {" "}
-              {/* Изменено на flex-1 overflow-y-auto, удален max-h */}
               {allPlayersInRoom.length === 0 ? (
                 <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
               ) : (
@@ -596,10 +562,12 @@ export default function TelegramRouletteApp() {
                         player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
                       }`}
                     >
+                      {/* Индикатор онлайн */}
+                      <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
                       <img
                         src={player.avatar || "/placeholder.svg"}
                         alt="Player"
-                        className="w-8 h-8 rounded-full object-cover"
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                         style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                       />
                       <div className="flex-1">
@@ -612,7 +580,7 @@ export default function TelegramRouletteApp() {
                             {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
                           </div>
                         )}
-                        {!player.isParticipant && <div className="text-xs text-gray-500">Наблюдатель</div>}
+                        {!player.isParticipant && <div className="text-xs text-gray-500">В сети</div>}
                       </div>
                     </div>
                   ))}
