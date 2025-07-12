@@ -222,7 +222,7 @@ export default function TelegramRouletteApp() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-x-hidden mobile-content-padding">
       {/* Общий банк */}
       <div className="flex items-center justify-center mb-4 pt-6 relative z-10">
         <div className="flex items-center gap-2 text-green-400">
@@ -247,7 +247,7 @@ export default function TelegramRouletteApp() {
 
         {/* Колесо */}
         <div
-          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative overflow-hidden shadow-2xl shadow-gray-900/50"
+          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative shadow-2xl shadow-gray-900/50"
           style={{
             transform: `rotate(${rotation}deg)`,
             transition: gameState.status === "spinning" ? "transform 15s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
@@ -399,7 +399,7 @@ export default function TelegramRouletteApp() {
       </div>
 
       {/* Список игроков */}
-      <div className="px-4 mb-20 relative z-10">
+      <div className="px-4 mb-6 relative z-10">
         {gameState.players.length === 0 ? (
           <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
             {/* Пустое место */}
@@ -454,8 +454,8 @@ export default function TelegramRouletteApp() {
         </div>
       )}
 
-      {/* Нижняя навигация */}
-      <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50">
+      {/* Нижняя навигация - добавлены мобильные классы */}
+      <div className="fixed left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50 mobile-bottom-bar">
         <div className="flex justify-around py-2">
           {[
             { icon: "💝", label: "PvP" },
