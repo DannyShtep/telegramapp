@@ -7,7 +7,7 @@ import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom } from "@/app/actions"
+import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions" // Импортируем новую функцию
 
 interface Player {
   id: string // UUID из Supabase
@@ -77,7 +77,7 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!isReady || !user) return
 
-    const initializeRoom = async () => {
+    const initializeRoomAndUser = async () => {
       console.log("Initializing room...")
       const { room, error } = await getOrCreateRoom(defaultRoomId)
       if (error) {
@@ -89,9 +89,26 @@ export default function TelegramRouletteApp() {
         setRoomState(room)
         console.log("Room state initialized:", room)
       }
+
+      // Добавляем текущего пользователя в список онлайн, если его нет
+      if (user) {
+        console.log("Ensuring current user is online...")
+        const { success, error: onlineError } = await ensureUserOnline(
+          defaultRoomId,
+          user,
+          getUserPhotoUrl,
+          getUserDisplayName,
+        )
+        if (onlineError) {
+          showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
+          console.error("Error ensuring user online:", onlineError)
+        } else if (success) {
+          console.log("User successfully ensured online.")
+        }
+      }
     }
 
-    initializeRoom()
+    initializeRoomAndUser()
 
     // Подписка на изменения в таблице rooms
     const roomSubscription = supabase
@@ -139,7 +156,7 @@ export default function TelegramRouletteApp() {
         supabase.removeChannel(playerSubscription)
       }
     }
-  }, [isReady, user, supabase, showAlert])
+  }, [isReady, user, supabase, showAlert, getUserPhotoUrl, getUserDisplayName]) // Добавили зависимости для ensureUserOnline
 
   // ------------------------------------------------------------------
   // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
@@ -203,6 +220,7 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
+      showAlert("Нажата кнопка 'Добавить гифт/ТОН'.")
       console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
       if (!user || !roomState) {
         showAlert("Ошибка: не удалось получить данные пользователя Telegram или комнаты.")
@@ -216,7 +234,7 @@ export default function TelegramRouletteApp() {
         return
       }
       if (roomState.status === "spinning" || roomState.status === "finished") {
-        showAlert("Нельзя добавить игрока во врем�� вра��ения или после завершения.")
+        showAlert("Нельзя добавить игрока во время вращения или после завершения.")
         console.log("handleAddPlayer: Cannot add player during spinning or finished state.")
         return
       }
@@ -233,6 +251,7 @@ export default function TelegramRouletteApp() {
       const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
       hapticFeedback.impact("medium")
+      showAlert("Отправка данных игрока на сервер...")
       console.log("handleAddPlayer: Attempting to add player via Server Action with data:", newPlayer)
 
       // Добавляем/обновляем игрока через Server Action
@@ -243,10 +262,11 @@ export default function TelegramRouletteApp() {
         return
       }
       if (!player) {
-        showAlert("Ошибка: Server Action не вернул данные игрока.")
+        showAlert("Ошибка: Server Action не вернул данные игрока. Проверьте логи Vercel.")
         console.error("handleAddPlayer: Server Action returned null player.")
         return
       }
+      showAlert("Игрок успешно добавлен! Обновление комнаты...")
       console.log("handleAddPlayer: Player added successfully:", player)
 
       // Обновляем состояние комнаты после добавления игрока
@@ -264,11 +284,13 @@ export default function TelegramRouletteApp() {
           status: newStatus,
           countdown: newStatus === "countdown" ? 20 : roomState.countdown, // Сбрасываем таймер при старте
         })
+        showAlert("Состояние комнаты обновлено.")
       } else {
+        showAlert("Supabase не подключен, обновление комнаты пропущено.")
         console.warn("handleAddPlayer: Supabase client is null, skipping room state update.")
       }
     },
-    [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase],
+    [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase], // Убрано createPlayerObject из зависимостей
   )
 
   const getWheelSegments = () => {
