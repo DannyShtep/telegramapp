@@ -78,6 +78,11 @@ export default function TelegramRouletteApp() {
     if (!isReady || !user) return
 
     const initializeRoom = async () => {
+      console.log("=== INITIALIZE ROOM START ===")
+      console.log("User data:", user)
+      console.log("isReady:", isReady)
+      console.log("Supabase client:", !!supabase)
+
       console.log("Initializing room...")
       const { room, error } = await getOrCreateRoom(defaultRoomId)
       if (error) {
@@ -91,25 +96,51 @@ export default function TelegramRouletteApp() {
       }
 
       // НОВОЕ: Обеспечиваем присутствие пользователя в списке "Онлайн"
-      console.log("Ensuring user is online...")
-      const { success, error: onlineError } = await ensureUserOnline(
-        defaultRoomId,
-        user,
-        getUserPhotoUrl,
-        getUserDisplayName,
-      )
-      if (onlineError) {
-        console.error("Error ensuring user online:", onlineError)
-        showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
-      } else if (success) {
-        console.log("User successfully added to online list")
-        // Обновляем список игроков после добавления пользователя
-        const { players, error: playersError } = await getPlayersInRoom(defaultRoomId)
-        if (!playersError && players) {
-          setPlayersInRoom(players as Player[])
-          console.log("Players list updated after ensuring user online:", players)
+      console.log("=== ENSURING USER ONLINE ===")
+      console.log("About to call ensureUserOnline with:", {
+        roomId: defaultRoomId,
+        user: user,
+        getUserPhotoUrl: typeof getUserPhotoUrl,
+        getUserDisplayName: typeof getUserDisplayName,
+      })
+
+      try {
+        const { success, error: onlineError } = await ensureUserOnline(
+          defaultRoomId,
+          user,
+          getUserPhotoUrl,
+          getUserDisplayName,
+        )
+
+        console.log("ensureUserOnline result:", { success, onlineError })
+
+        if (onlineError) {
+          console.error("Error ensuring user online:", onlineError)
+          showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
+        } else if (success) {
+          console.log("User successfully added to online list")
+          showAlert("Вы добавлены в список онлайн!")
+
+          // Обновляем список игроков после добавления пользователя
+          console.log("Fetching updated players list...")
+          const { players, error: playersError } = await getPlayersInRoom(defaultRoomId)
+          console.log("getPlayersInRoom result:", { players, playersError })
+
+          if (!playersError && players) {
+            setPlayersInRoom(players as Player[])
+            console.log("Players list updated after ensuring user online:", players)
+            showAlert(`Список игроков обновлен! Всего: ${players.length}`)
+          } else if (playersError) {
+            console.error("Error fetching players:", playersError)
+            showAlert(`Ошибка получения игроков: ${playersError}`)
+          }
         }
+      } catch (error) {
+        console.error("Exception in ensureUserOnline:", error)
+        showAlert(`Исключение при добавлении в онлайн: ${error}`)
       }
+
+      console.log("=== INITIALIZE ROOM END ===")
     }
 
     initializeRoom()
@@ -224,6 +255,24 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
+      console.log("=== HANDLE ADD PLAYER START ===")
+      console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
+      console.log("Current user:", user)
+      console.log("Current roomState:", roomState)
+      console.log("Current playersInRoom:", playersInRoom)
+
+      // НОВОЕ: Добавляем showAlert для отладки
+      showAlert(`🔧 Отладка: Начинаем добавление игрока`)
+
+      if (!user || !roomState) {
+        const errorMsg = `Ошибка: user=${!!user}, roomState=${!!roomState}`
+        showAlert(errorMsg)
+        console.error("handleAddPlayer: User or roomState is null", { user, roomState })
+        return
+      }
+
+      showAlert(`🔧 Отладка: Проверяем статус комнаты: ${roomState.status}`)
+
       console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
 
       // НОВОЕ: Добавляем showAlert для отладки
