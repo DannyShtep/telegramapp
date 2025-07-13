@@ -16,6 +16,7 @@ function guardSupabase<T>(client: any, fallback: T): T {
 }
 
 interface PlayerData {
+  id: string // Добавлено для явной передачи ID
   telegramId: number
   username: string
   displayName: string
@@ -118,6 +119,7 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
     const { data, error } = await supabase
       .from("players")
       .insert({
+        id: playerData.id, // <-- ЭТО ИСПРАВЛЕНИЕ: теперь передаем ID
         room_id: roomId,
         telegram_id: playerData.telegramId,
         username: playerData.username,
