@@ -80,13 +80,16 @@ export default function TelegramRouletteApp() {
     if (!isReady || !user) return
 
     const initializeRoom = async () => {
+      console.log("Initializing room...")
       const { room, error } = await getOrCreateRoom(defaultRoomId)
       if (error) {
         showAlert(`Ошибка инициализации комнаты: ${error}`)
+        console.error("Room initialization error:", error)
         return
       }
       if (room) {
         setRoomState(room)
+        console.log("Room state initialized:", room)
       }
     }
 
@@ -102,6 +105,7 @@ export default function TelegramRouletteApp() {
             (payload) => {
               if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
                 setRoomState(payload.new as RoomState)
+                console.log("Realtime room update:", payload.new)
               }
             },
           )
@@ -116,6 +120,7 @@ export default function TelegramRouletteApp() {
             "postgres_changes",
             { event: "*", schema: "public", table: "players", filter: `room_id=eq.${defaultRoomId}` },
             async (payload) => {
+              console.log("Realtime player change detected:", payload.eventType, payload.new)
               // При любом изменении в игроках, просто перечитываем всех игроков
               const { players, error } = await getPlayersInRoom(defaultRoomId)
               if (error) {
@@ -123,6 +128,7 @@ export default function TelegramRouletteApp() {
                 return
               }
               setPlayersInRoom(players as Player[])
+              console.log("Players updated via realtime:", players)
             },
           )
           .subscribe()
@@ -130,6 +136,7 @@ export default function TelegramRouletteApp() {
 
     return () => {
       if (supabase) {
+        console.log("Unsubscribing from Supabase channels.")
         supabase.removeChannel(roomSubscription)
         supabase.removeChannel(playerSubscription)
       }
@@ -154,11 +161,13 @@ export default function TelegramRouletteApp() {
     const hasPlayersChanged = playersNext.some((p, i) => p !== playersInRoom[i])
     if (hasPlayersChanged) {
       setPlayersInRoom(playersNext)
+      console.log("Players percentages updated:", playersNext)
     }
 
     // ---------- Логика таймера ----------
     if (roomState.status === "countdown" && roomState.countdown > 0) {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+      console.log(`Countdown started/resumed: ${roomState.countdown}s`)
 
       countdownIntervalRef.current = setInterval(async () => {
         if (roomState.countdown <= 0) return
@@ -168,6 +177,7 @@ export default function TelegramRouletteApp() {
         if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
         if (newCountdown === 0) {
+          console.log("Countdown reached 0. Initiating spin.")
           // запуск рулетки и остальная логика...
           const randomRotation = 5400 + Math.random() * 1440
           setRotation((prev) => prev + randomRotation)
@@ -175,10 +185,12 @@ export default function TelegramRouletteApp() {
           await updateRoomState(defaultRoomId, { status: "spinning", countdown: 0 })
           // дальнейшая логика победителя остаётся без изменений
         } else {
+          console.log("Updating countdown to:", newCountdown)
           await updateRoomState(defaultRoomId, { countdown: newCountdown })
         }
       }, 1000)
     } else if (countdownIntervalRef.current) {
+      console.log("Countdown stopped/cleared.")
       clearInterval(countdownIntervalRef.current)
       countdownIntervalRef.current = null
     }
@@ -193,6 +205,7 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
+      console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
       if (!user || !roomState) {
         showAlert("Ошибка: не удалось получить данные пользователя Telegram или комнаты.")
         console.error("handleAddPlayer: User or roomState is null", { user, roomState })
@@ -220,7 +233,7 @@ export default function TelegramRouletteApp() {
       const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
       hapticFeedback.impact("medium")
-      console.log("handleAddPlayer: Attempting to add player:", newPlayer)
+      console.log("handleAddPlayer: Attempting to add player via Server Action with data:", newPlayer)
 
       // Добавляем/обновляем игрока через Server Action
       const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
