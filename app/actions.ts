@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
 
 /** Проверяем, инициализирован ли Supabase-клиент.
- *  В preview-режиме он может быть null, тогда Server Action
- *  возвращает «заглушку», чтобы не падать. */
+ *  В режиме preview (Next.js) значений, как правило, нет.
+ *  Если клиент не инициализирован, возвращаем «заглушку», чтобы не падать. */
 function guardSupabase<T>(client: any, fallback: T): T {
   if (!client) {
     console.warn("Supabase client is NOT configured. Server action returns fallback result.")
@@ -54,7 +54,7 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
 
   if (fetchError && fetchError.code === "PGRST116") {
     // Комната не найдена, создаем новую
-    console.log("getOrCreateRoom: Room not found, creating new room.")
+    console.log("getOrCreateRoom: Room not found, attempting to create new room.")
     const { data: newRoom, error: createError } = await supabase
       .from("rooms")
       .insert({ id: roomId, status: "waiting", countdown: 20, total_gifts: 0, total_ton: 0 })
@@ -65,14 +65,14 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
       console.error("getOrCreateRoom: Error creating room:", createError)
       return { room: null, error: createError.message }
     }
-    console.log("getOrCreateRoom: New room created:", newRoom)
+    console.log("getOrCreateRoom: New room created successfully:", newRoom)
     return { room: newRoom, error: null }
   } else if (fetchError) {
     console.error("getOrCreateRoom: Error fetching room:", fetchError)
     return { room: null, error: fetchError.message }
   }
 
-  console.log("getOrCreateRoom: Room fetched:", room)
+  console.log("getOrCreateRoom: Room fetched successfully:", room)
   return { room, error: null }
 }
 
@@ -105,7 +105,7 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
 
   let playerResult
   if (existingPlayer) {
-    console.log("addPlayerToRoom: Existing player found, updating...")
+    console.log("addPlayerToRoom: Existing player found, updating player data.")
     // Обновляем существующего игрока
     const { data, error } = await supabase
       .from("players")
@@ -124,7 +124,7 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
       .single()
     playerResult = { data, error }
   } else {
-    console.log("addPlayerToRoom: No existing player found, inserting new player...")
+    console.log("addPlayerToRoom: No existing player found, inserting new player.")
     // Создаем нового игрока
     const { data, error } = await supabase
       .from("players")
@@ -173,10 +173,9 @@ export async function updateRoomState(
   )
   if (!supabase) {
     console.warn("updateRoomState: Supabase client is null. Returning mock success.")
-    // Возвращаем «успех»/пустые данные, чтобы клиент не упал
     return { success: true, player: null, room: null, players: [], error: null } as any
   }
-  console.log("updateRoomState: Attempting to update room state:", newState)
+  console.log("updateRoomState: Attempting to update room state for room:", roomId, "with data:", newState)
   const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
   if (error) {
@@ -197,11 +196,10 @@ export async function resetRoom(roomId: string) {
   )
   if (!supabase) {
     console.warn("resetRoom: Supabase client is null. Returning mock success.")
-    // Возвращаем «успех»/пустые данные, чтобы клиент не упал
     return { success: true, player: null, room: null, players: [], error: null } as any
   }
 
-  console.log("resetRoom: Attempting to reset room and delete players.")
+  console.log("resetRoom: Attempting to reset room and delete players for room:", roomId)
   // Удаляем всех игроков из комнаты
   const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
 
@@ -242,7 +240,6 @@ export async function getPlayersInRoom(roomId: string) {
   )
   if (!supabase) {
     console.warn("getPlayersInRoom: Supabase client is null. Returning empty players array.")
-    // Возвращаем «успех»/пустые данные, чтобы клиент не упал
     return { success: true, player: null, room: null, players: [], error: null } as any
   }
   console.log("getPlayersInRoom: Attempting to fetch players for room:", roomId)
@@ -256,6 +253,6 @@ export async function getPlayersInRoom(roomId: string) {
     console.error("getPlayersInRoom: Error fetching players in room:", error)
     return { players: [], error: error.message }
   }
-  console.log("getPlayersInRoom: Players fetched:", data)
+  console.log("getPlayersInRoom: Players fetched successfully:", data)
   return { players: data, error: null }
 }
