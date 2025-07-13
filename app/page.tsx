@@ -64,7 +64,7 @@ export default function TelegramRouletteApp() {
     return {
       id: `temp_${telegramUser.id}_${Date.now()}`, // Временный ID до сохранения в БД
       telegramId: telegramUser.id,
-      username: telegramUser.username || `user${telegramUser.id}`,
+      username: telegramUser.username || `user${telegramUser.id}`, // Используем username, если есть, иначе fallback
       displayName: getUserDisplayName(telegramUser),
       avatar: getUserPhotoUrl(telegramUser),
       gifts: isParticipant ? 1 : 0,
@@ -195,16 +195,24 @@ export default function TelegramRouletteApp() {
     async (isGift = true, tonAmountToAdd?: number) => {
       if (!user || !roomState) {
         showAlert("Ошибка: не удалось получить данные пользователя Telegram или комнаты.")
+        console.error("handleAddPlayer: User or roomState is null", { user, roomState })
         return
       }
 
-      if (roomState.status === "countdown" && roomState.countdown <= 3) return
-      if (roomState.status === "spinning" || roomState.status === "finished") return
+      if (roomState.status === "countdown" && roomState.countdown <= 3) {
+        console.log("handleAddPlayer: Cannot add player during final countdown.")
+        return
+      }
+      if (roomState.status === "spinning" || roomState.status === "finished") {
+        console.log("handleAddPlayer: Cannot add player during spinning or finished state.")
+        return
+      }
 
       const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
       if (existingParticipant) {
         hapticFeedback.notification("error")
         showAlert("Вы уже участвуете в игре!")
+        console.log("handleAddPlayer: User is already a participant.")
         return
       }
 
@@ -212,27 +220,34 @@ export default function TelegramRouletteApp() {
       const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
       hapticFeedback.impact("medium")
+      console.log("handleAddPlayer: Attempting to add player:", newPlayer)
 
       // Добавляем/обновляем игрока через Server Action
       const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
       if (error) {
         showAlert(`Ошибка добавления игрока: ${error}`)
+        console.error("handleAddPlayer: Error adding player via Server Action:", error)
         return
       }
+      console.log("handleAddPlayer: Player added successfully:", player)
 
       // Обновляем состояние комнаты после добавления игрока
+      // Filter Boolean для удаления null/undefined, если player вдруг не вернулся
       const updatedParticipants = [...playersInRoom.filter((p) => p.isParticipant), player].filter(Boolean) as Player[]
       const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
       const newTotalGifts = updatedParticipants.length
       const newStatus = newTotalGifts === 1 ? "single_player" : newTotalGifts >= 2 ? "countdown" : "waiting"
 
       if (supabase) {
+        console.log("handleAddPlayer: Updating room state with new totals and status.")
         await updateRoomState(roomState.id, {
           total_gifts: newTotalGifts,
           total_ton: newTotalTon,
           status: newStatus,
           countdown: newStatus === "countdown" ? 20 : roomState.countdown, // Сбрасываем таймер при старте
         })
+      } else {
+        console.warn("handleAddPlayer: Supabase client is null, skipping room state update.")
       }
     },
     [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase],
@@ -326,7 +341,7 @@ export default function TelegramRouletteApp() {
       {/* Общий банк */}
       <div className="flex items-center justify-center mb-4 pt-16 relative z-10">
         <div className="flex items-center gap-2 text-green-400">
-          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+          <div className="w-2 h-2 bg-green-400 rounded-full flex-shrink-0"></div>
           <span className="text-lg font-medium">Общий банк</span>
         </div>
       </div>
@@ -576,7 +591,7 @@ export default function TelegramRouletteApp() {
                             {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
                           </div>
                         )}
-                        {!player.isParticipant && <div className="text-xs text-gray-500">В сети</div>}
+                        {/* Удалена надпись "В сети" для не-участников */}
                       </div>
                     </div>
                   ))}
