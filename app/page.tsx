@@ -7,7 +7,7 @@ import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions" // Импортируем новую функцию
+import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
 
 interface Player {
   id: string // UUID из Supabase
@@ -77,7 +77,7 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!isReady || !user) return
 
-    const initializeRoomAndUser = async () => {
+    const initializeRoom = async () => {
       console.log("Initializing room...")
       const { room, error } = await getOrCreateRoom(defaultRoomId)
       if (error) {
@@ -90,25 +90,29 @@ export default function TelegramRouletteApp() {
         console.log("Room state initialized:", room)
       }
 
-      // Добавляем текущего пользователя в список онлайн, если его нет
-      if (user) {
-        console.log("Ensuring current user is online...")
-        const { success, error: onlineError } = await ensureUserOnline(
-          defaultRoomId,
-          user,
-          getUserPhotoUrl,
-          getUserDisplayName,
-        )
-        if (onlineError) {
-          showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
-          console.error("Error ensuring user online:", onlineError)
-        } else if (success) {
-          console.log("User successfully ensured online.")
+      // НОВОЕ: Обеспечиваем присутствие пользователя в списке "Онлайн"
+      console.log("Ensuring user is online...")
+      const { success, error: onlineError } = await ensureUserOnline(
+        defaultRoomId,
+        user,
+        getUserPhotoUrl,
+        getUserDisplayName,
+      )
+      if (onlineError) {
+        console.error("Error ensuring user online:", onlineError)
+        showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
+      } else if (success) {
+        console.log("User successfully added to online list")
+        // Обновляем список игроков после добавления пользователя
+        const { players, error: playersError } = await getPlayersInRoom(defaultRoomId)
+        if (!playersError && players) {
+          setPlayersInRoom(players as Player[])
+          console.log("Players list updated after ensuring user online:", players)
         }
       }
     }
 
-    initializeRoomAndUser()
+    initializeRoom()
 
     // Подписка на изменения в таблице rooms
     const roomSubscription = supabase
@@ -156,7 +160,7 @@ export default function TelegramRouletteApp() {
         supabase.removeChannel(playerSubscription)
       }
     }
-  }, [isReady, user, supabase, showAlert, getUserPhotoUrl, getUserDisplayName]) // Добавили зависимости для ensureUserOnline
+  }, [isReady, user, supabase, showAlert, getUserPhotoUrl, getUserDisplayName])
 
   // ------------------------------------------------------------------
   // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
@@ -220,8 +224,11 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
-      showAlert("Нажата кнопка 'Добавить гифт/ТОН'.")
       console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
+
+      // НОВОЕ: Добавляем showAlert для отладки
+      showAlert(`Начинаем добавление игрока. Гифт: ${isGift}, ТОН: ${tonAmountToAdd || "случайно"}`)
+
       if (!user || !roomState) {
         showAlert("Ошибка: не удалось получить данные пользователя Telegram или комнаты.")
         console.error("handleAddPlayer: User or roomState is null", { user, roomState })
@@ -251,8 +258,10 @@ export default function TelegramRouletteApp() {
       const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
       hapticFeedback.impact("medium")
-      showAlert("Отправка данных игрока на сервер...")
       console.log("handleAddPlayer: Attempting to add player via Server Action with data:", newPlayer)
+
+      // НОВОЕ: Добавляем showAlert для отладки
+      showAlert(`Отправляем данные на сервер. ТОН: ${tonValue.toFixed(1)}`)
 
       // Добавляем/обновляем игрока через Server Action
       const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
@@ -262,12 +271,14 @@ export default function TelegramRouletteApp() {
         return
       }
       if (!player) {
-        showAlert("Ошибка: Server Action не вернул данные игрока. Проверьте логи Vercel.")
+        showAlert("Ошибка: Server Action не вернул данные игрока.")
         console.error("handleAddPlayer: Server Action returned null player.")
         return
       }
-      showAlert("Игрок успешно добавлен! Обновление комнаты...")
       console.log("handleAddPlayer: Player added successfully:", player)
+
+      // НОВОЕ: Добавляем showAlert для отладки
+      showAlert(`Игрок успешно добавлен! Обновляем комнату...`)
 
       // Обновляем состояние комнаты после добавления игрока
       // Filter Boolean для удаления null/undefined, если player вдруг не вернулся
@@ -284,13 +295,15 @@ export default function TelegramRouletteApp() {
           status: newStatus,
           countdown: newStatus === "countdown" ? 20 : roomState.countdown, // Сбрасываем таймер при старте
         })
-        showAlert("Состояние комнаты обновлено.")
+
+        // НОВОЕ: Добавляем showAlert для отладки
+        showAlert(`Комната обновлена! Статус: ${newStatus}, Подарков: ${newTotalGifts}`)
       } else {
-        showAlert("Supabase не подключен, обновление комнаты пропущено.")
         console.warn("handleAddPlayer: Supabase client is null, skipping room state update.")
+        showAlert("Предупреждение: Supabase клиент не найден")
       }
     },
-    [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase], // Убрано createPlayerObject из зависимостей
+    [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase],
   )
 
   const getWheelSegments = () => {
