@@ -35,10 +35,8 @@ export default function TelegramRouletteApp() {
   const { user, isReady, hapticFeedback, showAlert, getUserPhotoUrl, getUserDisplayName } = useTelegram()
   const supabase = createClientComponentClient()
 
-  // Если переменные Supabase не заданы – приложение работает в демо-режиме
-  if (!supabase) {
-    console.warn("Running without Supabase backend (demo preview).")
-  }
+  // Определяем статус подключения к Supabase для отображения в UI
+  const supabaseStatus = supabase ? "Connected" : "Disconnected (Demo Mode)"
 
   const defaultRoomId = "default-room-id" // Можно сделать динамическим в будущем
 
@@ -213,10 +211,12 @@ export default function TelegramRouletteApp() {
       }
 
       if (roomState.status === "countdown" && roomState.countdown <= 3) {
+        showAlert("Нельзя добавить игрока во время финального отсчета.")
         console.log("handleAddPlayer: Cannot add player during final countdown.")
         return
       }
       if (roomState.status === "spinning" || roomState.status === "finished") {
+        showAlert("Нельзя добавить игрока во врем�� вра��ения или после завершения.")
         console.log("handleAddPlayer: Cannot add player during spinning or finished state.")
         return
       }
@@ -240,6 +240,11 @@ export default function TelegramRouletteApp() {
       if (error) {
         showAlert(`Ошибка добавления игрока: ${error}`)
         console.error("handleAddPlayer: Error adding player via Server Action:", error)
+        return
+      }
+      if (!player) {
+        showAlert("Ошибка: Server Action не вернул данные игрока.")
+        console.error("handleAddPlayer: Server Action returned null player.")
         return
       }
       console.log("handleAddPlayer: Player added successfully:", player)
@@ -315,6 +320,7 @@ export default function TelegramRouletteApp() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto mb-4"></div>
           <p className="text-gray-400">Подключение к Telegram и загрузка комнаты...</p>
+          <p className="text-gray-500 text-xs mt-2">Supabase Status: {supabaseStatus}</p>
         </div>
       </div>
     )
@@ -664,6 +670,11 @@ export default function TelegramRouletteApp() {
             </Button>
           ))}
         </div>
+      </div>
+
+      {/* Индикатор состояния Supabase */}
+      <div className="fixed bottom-0 left-0 right-0 text-center text-gray-500 text-xs pb-2 z-40">
+        Supabase Status: {supabaseStatus}
       </div>
     </div>
   )
