@@ -14,8 +14,6 @@ export function useTelegram() {
       const tg = window.Telegram.WebApp
       setWebApp(tg)
 
-      // Ранее здесь был tg.showAlert(`[TG WebApp Detected]`), но он был удален.
-
       // Инициализируем WebApp
       tg.ready()
 
@@ -32,9 +30,10 @@ export function useTelegram() {
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
+        // !!! ВАЖНО: Логируем данные пользователя для отладки !!!
+        console.log("[TG WebApp] User data received:", JSON.stringify(tg.initDataUnsafe.user))
       } else {
         // В этом случае данные пользователя отсутствуют, но WebApp обнаружен.
-        // Мы не будем выводить alert, чтобы не блокировать UI.
         console.log("[TG WebApp] User data missing in initDataUnsafe.")
       }
 
@@ -91,16 +90,12 @@ export function useTelegram() {
   }
 
   const getUserPhotoUrl = (user: TelegramUser): string => {
-    // Если мы не в Telegram WebApp (т.е. в браузере V0 Preview), используем внутренний плейсхолдер
-    if (!webApp) {
-      return `/placeholder.svg?height=64&width=64`
-    }
     // Если есть photo_url из Telegram, используем его
     if (user.photo_url) {
       return user.photo_url
     }
-    // В противном случае, используем Dicebear как запасной вариант для Telegram
-    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
+    // В противном случае (нет photo_url от Telegram или не в WebApp), используем внутренний плейсхолдер
+    return `/placeholder.svg?height=64&width=64`
   }
 
   const getUserDisplayName = (user: TelegramUser): string => {
