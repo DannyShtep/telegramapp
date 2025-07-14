@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
+import type { Player, SupabasePlayer } from "@/types/player" // Импортируем интерфейсы
 
 /** Returns Supabase client. Throws an error if env vars are missing. */
 export async function getSupabase() {
@@ -10,17 +11,29 @@ export async function getSupabase() {
   return client
 }
 
-interface PlayerData {
-  id: string // Добавлено для явной передачи ID
-  telegramId: number
-  username: string
-  displayName: string
-  avatar: string
-  gifts: number
-  tonValue: number
-  color: string
-  percentage: number
-  isParticipant: boolean
+/**
+ * Функция для преобразования объекта SupabasePlayer (snake_case) в Player (camelCase).
+ */
+function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player {
+  return {
+    id: supabasePlayer.id,
+    telegramId: supabasePlayer.telegram_id,
+    username: supabasePlayer.username,
+    // Используем display_name, если есть, иначе username, иначе fallback
+    displayName:
+      supabasePlayer.display_name ||
+      (supabasePlayer.username
+        ? `@${supabasePlayer.username}`
+        : supabasePlayer.telegram_id
+          ? `User ${supabasePlayer.telegram_id}`
+          : "Unknown User"),
+    avatar: supabasePlayer.avatar,
+    gifts: supabasePlayer.gifts,
+    tonValue: supabasePlayer.ton_value,
+    color: supabasePlayer.color,
+    percentage: supabasePlayer.percentage,
+    isParticipant: supabasePlayer.is_participant,
+  }
 }
 
 // Функция для получения или создания комнаты
@@ -91,7 +104,7 @@ export async function ensureUserOnline(
         .from("players")
         .update({
           username: telegramUsername,
-          display_name: displayName,
+          display_name: displayName, // Сохраняем как display_name
           avatar: avatarUrl,
         })
         .eq("id", existingPlayer.id)
@@ -107,7 +120,7 @@ export async function ensureUserOnline(
         room_id: roomId,
         telegram_id: telegramId,
         username: telegramUsername,
-        display_name: displayName,
+        display_name: displayName, // Сохраняем как display_name
         avatar: avatarUrl,
         gifts: 0,
         ton_value: 0,
@@ -133,7 +146,8 @@ export async function ensureUserOnline(
 }
 
 // Функция для добавления игрока в комнату или обновления его статуса
-export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
+export async function addPlayerToRoom(roomId: string, playerData: Player) {
+  // Используем Player интерфейс
   try {
     const supabase = await getSupabase()
 
@@ -178,7 +192,7 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
           room_id: roomId,
           telegram_id: playerData.telegramId,
           username: playerData.username,
-          display_name: playerData.displayName,
+          display_name: playerData.displayName, // Сохраняем как display_name
           avatar: playerData.avatar,
           gifts: playerData.gifts,
           ton_value: playerData.tonValue,
@@ -196,8 +210,11 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
       return { player: null, error: playerResult.error.message }
     }
 
+    // Преобразуем результат перед возвратом на клиент
+    const clientPlayer = mapSupabasePlayerToClientPlayer(playerResult.data as SupabasePlayer)
+
     revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
-    return { player: playerResult.data, error: null }
+    return { player: clientPlayer, error: null }
   } catch (error: any) {
     console.error("Caught exception in addPlayerToRoom:", error.message)
     return { player: null, error: error.message }
@@ -288,7 +305,11 @@ export async function getPlayersInRoom(roomId: string) {
       console.error("Error fetching players in getPlayersInRoom:", error)
       return { players: [], error: error.message }
     }
-    return { players: data, error: null }
+
+    // Преобразуем полученные данные в camelCase формат
+    const clientPlayers: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+
+    return { players: clientPlayers, error: null }
   } catch (error: any) {
     console.error("Caught exception in getPlayersInRoom:", error.message)
     return { players: [], error: error.message }
