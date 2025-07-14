@@ -15,7 +15,7 @@ export function useTelegram() {
       setWebApp(tg)
 
       // Всегда показываем alert, чтобы подтвердить, что WebApp обнаружен
-      tg.showAlert(`[TG WebApp Detected]`) // Оставляем этот alert для подтверждения инициализации
+      // tg.showAlert(`[TG WebApp Detected]`) // Оставляем этот alert для подтверждения инициализации
 
       // Инициализируем WebApp
       tg.ready()
@@ -33,20 +33,21 @@ export function useTelegram() {
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
-        // УДАЛЕНО: tg.showAlert(`[TG User Data from WebApp] ${JSON.stringify(tg.initDataUnsafe.user)}`)
       } else {
-        // УДАЛЕНО: tg.showAlert("[TG WebApp] User data missing in initDataUnsafe.")
+        // В этом случае данные пользователя отсутствуют, но WebApp обнаружен.
+        // Мы не будем выводить alert, чтобы не блокировать UI.
+        console.log("[TG WebApp] User data missing in initDataUnsafe.")
       }
 
       setIsReady(true)
     } else {
-      // Fallback для разработки/не-Telegram окружений
+      // Fallback для разработки/не-Telegram окружений (браузер V0 Preview)
       const mockUser: TelegramUser = {
         id: Math.floor(Math.random() * 1000000),
         first_name: "Test",
         last_name: "User",
         username: "testuser",
-        photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser",
+        // photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser", // УДАЛЕНО: Использование внешнего URL может вызывать ошибки в V0 Preview
         language_code: "ru",
       }
       setUser(mockUser)
@@ -92,10 +93,15 @@ export function useTelegram() {
   }
 
   const getUserPhotoUrl = (user: TelegramUser): string => {
+    // Если мы не в Telegram WebApp (т.е. в браузере V0 Preview), используем внутренний плейсхолдер
+    if (!webApp) {
+      return `/placeholder.svg?height=64&width=64`
+    }
+    // Если есть photo_url из Telegram, используем его
     if (user.photo_url) {
       return user.photo_url
     }
-    // Fallback к Dicebear с использованием user ID
+    // В противном случае, используем Dicebear как запасной вариант для Telegram
     return `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
   }
 
