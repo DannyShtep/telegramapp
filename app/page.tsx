@@ -50,7 +50,6 @@ export default function TelegramRouletteApp() {
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все игроки в комнате
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
-  // const [showPlayersModal, setShowPlayersModal] = useState(false) // Удаляем это состояние, Dialog управляет им сам
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
@@ -179,7 +178,7 @@ export default function TelegramRouletteApp() {
     const participants = playersInRoom.filter((p) => p.isParticipant)
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
 
-    // пересчитаем проценты; если ничего не поменялось �� состояние не трогаем
+    // пересчитаем проценты; если ничего не поменялось — состояние не трогаем
     const playersNext = playersInRoom.map((p) => {
       const newPerc = p.isParticipant && totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
       return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
@@ -317,24 +316,6 @@ export default function TelegramRouletteApp() {
     return `${count} подарков`
   }
 
-  // Удаляем useEffect для ручного управления no-scroll, так как Dialog будет делать это сам
-  // useEffect(() => {
-  //   if (showPlayersModal) {
-  //     document.body.classList.add("no-scroll")
-  //     document.documentElement.classList.add("no-scroll")
-  //     console.log("[Client] Added 'no-scroll' class to body and html.")
-  //   } else {
-  //     document.body.classList.remove("no-scroll")
-  //     document.documentElement.classList.remove("no-scroll")
-  //     console.log("[Client] Removed 'no-scroll' class from body and html.")
-  //   }
-  //   return () => {
-  //     document.body.classList.remove("no-scroll")
-  //     document.documentElement.classList.remove("no-scroll")
-  //     console.log("[Client] Removed 'no-scroll' class from body and html on unmount.")
-  //   }
-  // }, [showPlayersModal])
-
   // Если Supabase не настроен (local preview) – показываем упрощённый UI без данных из БД
   if (!supabase) {
     return (
@@ -391,8 +372,9 @@ export default function TelegramRouletteApp() {
               ) : (
                 <div className="space-y-2">
                   {playersInRoom.map((player) => {
+                    // Добавляем логирование прямо перед рендерингом
                     console.log(
-                      `[Client] Player in Online modal: id=${player.id}, displayName=${player.displayName}, avatar=${player.avatar}`,
+                      `[Client] Rendering player in Online modal: id=${player.id}, displayName='${player.displayName}', username='${player.username}', avatar='${player.avatar}'`,
                     )
                     return (
                       <div
@@ -410,7 +392,10 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          <span className="text-white font-medium bg-red-500 block">{player.displayName}</span>
+                          {/* Усиленные стили для диагностики */}
+                          <span className="text-white font-bold bg-red-500 block p-1 border border-yellow-500 text-lg min-w-[50px]">
+                            {player.displayName || "NO DISPLAY NAME"}
+                          </span>
                           {player.isParticipant && (
                             <div className="text-xs text-gray-400">
                               {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
