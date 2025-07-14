@@ -8,20 +8,8 @@ import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
 import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog" // Импортируем компоненты Dialog
-
-interface Player {
-  id: string // UUID из Supabase
-  telegramId: number
-  username: string
-  displayName: string
-  avatar: string
-  gifts: number
-  tonValue: number
-  color: string
-  percentage: number
-  isParticipant: boolean
-}
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import type { Player } from "@/types/player" // Импортируем Player из нового файла
 
 interface RoomState {
   id: string // UUID комнаты
@@ -67,12 +55,12 @@ export default function TelegramRouletteApp() {
     return {
       id: `temp_${telegramUser.id}_${Date.now()}`, // Временный ID до сохранения в БД
       telegramId: telegramUser.id,
-      username: telegramUser.username || `user${telegramUser.id}`, // Используем username, если есть, иначе fallback
-      displayName: getUserDisplayName(telegramUser),
-      avatar: getUserPhotoUrl(telegramUser),
+      username: telegramUser.username || null, // username может быть null
+      displayName: getUserDisplayName(telegramUser), // Используем getUserDisplayName
+      avatar: getUserPhotoUrl(telegramUser) || null, // avatar может быть null
       gifts: isParticipant ? 1 : 0,
       tonValue: tonValue,
-      color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "",
+      color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#4b5563", // Цвет по умолчанию для наблюдателей
       percentage: 0,
       isParticipant: isParticipant,
     }
@@ -113,7 +101,7 @@ export default function TelegramRouletteApp() {
         } else if (success) {
           const { players, error } = await getPlayersInRoom(defaultRoomId)
           if (!error && players) {
-            setPlayersInRoom(players as Player[])
+            setPlayersInRoom(players) // Теперь players уже в camelCase
             console.log("[Client] Initial players in room:", JSON.stringify(players, null, 2))
           } else if (error) {
             console.error("Error fetching players:", error)
@@ -152,7 +140,7 @@ export default function TelegramRouletteApp() {
             console.error("Error fetching players after realtime update:", error)
             return
           }
-          setPlayersInRoom(players as Player[])
+          setPlayersInRoom(players) // Теперь players уже в camelCase
           console.log("[Client] Players updated via Realtime:", JSON.stringify(players, null, 2))
         },
       )
@@ -392,10 +380,8 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          {/* Временная заглушка для отладки */}
-                          <span className="text-white font-bold text-lg">
-                            {player.displayName || "DEBUG: MISSING NAME"}
-                          </span>
+                          {/* Теперь player.displayName должен быть корректным */}
+                          <span className="text-white font-bold text-lg">{player.displayName}</span>
                           {player.isParticipant && (
                             <div className="text-xs text-gray-400">
                               {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
@@ -510,7 +496,7 @@ export default function TelegramRouletteApp() {
                         y={avatarY - 8}
                         width="16"
                         height="16"
-                        href={segment.player.avatar}
+                        href={segment.player.avatar || "/placeholder.svg"}
                         clipPath="circle(8px at center)"
                       />
                     </g>
