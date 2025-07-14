@@ -110,7 +110,7 @@ export default function TelegramRouletteApp() {
           const { players, error } = await getPlayersInRoom(defaultRoomId)
           if (!error && players) {
             setPlayersInRoom(players as Player[])
-            console.log("[Client] Initial players in room:", players) // <-- Добавлено логирование
+            console.log("[Client] Initial players in room:", JSON.stringify(players, null, 2)) // <-- Изменено логирование
           } else if (error) {
             console.error("Error fetching players:", error)
           }
@@ -149,7 +149,7 @@ export default function TelegramRouletteApp() {
             return
           }
           setPlayersInRoom(players as Player[])
-          console.log("[Client] Players updated via Realtime:", players) // <-- Добавлено логирование
+          console.log("[Client] Players updated via Realtime:", JSON.stringify(players, null, 2)) // <-- Изменено логирование
         },
       )
       .subscribe()
@@ -162,7 +162,7 @@ export default function TelegramRouletteApp() {
 
   // Дополнительное логирование для отслеживания состояния playersInRoom
   useEffect(() => {
-    console.log("[Client] Current playersInRoom state:", playersInRoom)
+    console.log("[Client] Current playersInRoom state:", JSON.stringify(playersInRoom, null, 2)) // <-- Изменено логирование
   }, [playersInRoom])
 
   // ------------------------------------------------------------------
