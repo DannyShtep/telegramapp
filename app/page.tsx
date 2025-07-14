@@ -8,6 +8,7 @@ import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
 import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog" // Импортируем компоненты Dialog
 
 interface Player {
   id: string // UUID из Supabase
@@ -49,7 +50,7 @@ export default function TelegramRouletteApp() {
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все игроки в комнате
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
-  const [showPlayersModal, setShowPlayersModal] = useState(false)
+  // const [showPlayersModal, setShowPlayersModal] = useState(false) // Удаляем это состояние, Dialog управляет им сам
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
@@ -178,7 +179,7 @@ export default function TelegramRouletteApp() {
     const participants = playersInRoom.filter((p) => p.isParticipant)
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
 
-    // пересчитаем проценты; если ничего не поменялось — состояние не трогаем
+    // пересчитаем проценты; если ничего не поменялось �� состояние не трогаем
     const playersNext = playersInRoom.map((p) => {
       const newPerc = p.isParticipant && totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
       return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
@@ -316,23 +317,23 @@ export default function TelegramRouletteApp() {
     return `${count} подарков`
   }
 
-  // Эффект для блокировки прокрутки фона при открытом модале игроков
-  useEffect(() => {
-    if (showPlayersModal) {
-      document.body.classList.add("no-scroll")
-      document.documentElement.classList.add("no-scroll")
-      console.log("[Client] Added 'no-scroll' class to body and html.")
-    } else {
-      document.body.classList.remove("no-scroll")
-      document.documentElement.classList.remove("no-scroll")
-      console.log("[Client] Removed 'no-scroll' class from body and html.")
-    }
-    return () => {
-      document.body.classList.remove("no-scroll")
-      document.documentElement.classList.remove("no-scroll")
-      console.log("[Client] Removed 'no-scroll' class from body and html on unmount.")
-    }
-  }, [showPlayersModal])
+  // Удаляем useEffect для ручного управления no-scroll, так как Dialog будет делать это сам
+  // useEffect(() => {
+  //   if (showPlayersModal) {
+  //     document.body.classList.add("no-scroll")
+  //     document.documentElement.classList.add("no-scroll")
+  //     console.log("[Client] Added 'no-scroll' class to body and html.")
+  //   } else {
+  //     document.body.classList.remove("no-scroll")
+  //     document.documentElement.classList.remove("no-scroll")
+  //     console.log("[Client] Removed 'no-scroll' class from body and html.")
+  //   }
+  //   return () => {
+  //     document.body.classList.remove("no-scroll")
+  //     document.documentElement.classList.remove("no-scroll")
+  //     console.log("[Client] Removed 'no-scroll' class from body and html on unmount.")
+  //   }
+  // }, [showPlayersModal])
 
   // Если Supabase не настроен (local preview) – показываем упрощённый UI без данных из БД
   if (!supabase) {
@@ -364,18 +365,66 @@ export default function TelegramRouletteApp() {
       {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
         {/* Счетчик игроков в комнате */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center"
-          onClick={() => {
-            hapticFeedback.selection()
-            setShowPlayersModal(true)
-          }}
-        >
-          <Eye className="w-4 h-4 mr-2" />
-          <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
-        </Button>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center"
+              onClick={() => hapticFeedback.selection()}
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] flex flex-col p-0">
+            <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-green-400" />
+                <DialogTitle className="text-lg font-bold text-white">Онлайн</DialogTitle>
+              </div>
+              {/* Кнопка закрытия уже встроена в DialogContent */}
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto p-4">
+              {playersInRoom.length === 0 ? (
+                <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
+              ) : (
+                <div className="space-y-2">
+                  {playersInRoom.map((player) => {
+                    console.log(
+                      `[Client] Player in Online modal: id=${player.id}, displayName=${player.displayName}, avatar=${player.avatar}`,
+                    )
+                    return (
+                      <div
+                        key={player.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg ${
+                          player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
+                        }`}
+                      >
+                        {/* Индикатор онлайн */}
+                        <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                        <img
+                          src={player.avatar || "/placeholder.svg"}
+                          alt="Player"
+                          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                          style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
+                        />
+                        <div className="flex-1">
+                          <span className="text-white font-medium bg-red-500 block">{player.displayName}</span>
+                          {player.isParticipant && (
+                            <div className="text-xs text-gray-400">
+                              {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Информация о текущем пользователе */}
         {user && (
@@ -588,70 +637,6 @@ export default function TelegramRouletteApp() {
           ))
         )}
       </div>
-
-      {/* Модал со списком всех игроков в комнате */}
-      {showPlayersModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <Card className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] relative flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-green-400" />
-                <h2 className="text-lg font-bold text-white">Онлайн</h2>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                onClick={() => {
-                  hapticFeedback.selection()
-                  setShowPlayersModal(false)
-                }}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {playersInRoom.length === 0 ? (
-                <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
-              ) : (
-                <div className="space-y-2">
-                  {playersInRoom.map((player) => {
-                    console.log(
-                      `[Client] Player in Online modal: id=${player.id}, displayName=${player.displayName}, avatar=${player.avatar}`,
-                    )
-                    return (
-                      <div
-                        key={player.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg ${
-                          player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
-                        }`}
-                      >
-                        {/* Индикатор онлайн */}
-                        <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
-                        <img
-                          src={player.avatar || "/placeholder.svg"}
-                          alt="Player"
-                          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                          style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
-                        />
-                        <div className="flex-1">
-                          {/* Изменено: убран промежуточный div, span сделан block */}
-                          <span className="text-white font-medium bg-red-500 block">{player.displayName}</span>
-                          {player.isParticipant && (
-                            <div className="text-xs text-gray-400">
-                              {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
 
       {/* Модал победителя */}
       {showWinnerModal && currentWinner && (
