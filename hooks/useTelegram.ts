@@ -9,9 +9,14 @@ export function useTelegram() {
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
+    // Проверяем, существует ли объект Telegram WebApp
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp
       setWebApp(tg)
+
+      // Всегда показываем alert, чтобы подтвердить, что WebApp обнаружен
+      // Это первое сообщение, которое должно появиться, если WebApp доступен
+      tg.showAlert(`[TG WebApp Detected]`)
 
       // Инициализируем WebApp
       tg.ready()
@@ -23,30 +28,31 @@ export function useTelegram() {
       tg.headerColor = "#1f2937"
       tg.backgroundColor = "#111827"
 
-      // Отключаем вертикальные свайпы для предотвращения сворачивания
+      // Отключаем вертикальные свайпы
       tg.disableVerticalSwipes(true)
 
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
-        console.log("Telegram User Data:", tg.initDataUnsafe.user)
       }
 
       setIsReady(true)
     } else {
-      // Для разработки - создаем моковые данные
+      // Fallback для разработки/не-Telegram окружений
       const mockUser: TelegramUser = {
         id: Math.floor(Math.random() * 1000000),
         first_name: "Test",
         last_name: "User",
         username: "testuser",
-        photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser", // Добавлено для тестирования
+        photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser",
         language_code: "ru",
       }
       setUser(mockUser)
       setIsReady(true)
+      // Этот alert должен всегда появляться, если Telegram WebApp НЕ обнаружен
+      alert(`[MOCK DATA FALLBACK] User Data: ${JSON.stringify(mockUser)}`)
     }
-  }, [])
+  }, []) // Пустой массив зависимостей, чтобы эффект запускался только один раз при монтировании
 
   const hapticFeedback = {
     impact: (style: "light" | "medium" | "heavy" | "rigid" | "soft" = "medium") => {
@@ -64,7 +70,8 @@ export function useTelegram() {
     if (webApp) {
       webApp.showAlert(message)
     } else {
-      alert(message)
+      // Fallback на браузерный alert, если webApp недоступен
+      alert(`[Browser Alert] ${message}`)
     }
   }
 
