@@ -31,6 +31,14 @@ interface RoomState {
   total_ton: number
 }
 
+const items = [
+  { icon: "💝", label: "PvP" },
+  { icon: "🔔", label: "Rolls" },
+  { icon: "👤", label: "Мои гифты" },
+  { icon: "🏪", label: "Магазин" },
+  { icon: "⚡", label: "Заработок" },
+]
+
 export default function TelegramRouletteApp() {
   const { user, isReady, hapticFeedback, showAlert, getUserPhotoUrl, getUserDisplayName } = useTelegram()
   const supabase = createClientComponentClient()
@@ -138,9 +146,10 @@ export default function TelegramRouletteApp() {
         }
 
         console.log("=== INITIALIZE ROOM END ===")
-      } catch (error) {
+      } catch (error: any) {
+        // Добавлен тип any для error
         console.error("Exception in initializeRoom:", error)
-        showAlert(`💥 Исключение при инициализации: ${error}`)
+        showAlert(`💥 Исключение при инициализации: ${error.message || error}`) // Отображаем сообщение об ошибке
       }
     }
 
@@ -354,9 +363,10 @@ export default function TelegramRouletteApp() {
         }
 
         console.log("=== HANDLE ADD PLAYER END ===")
-      } catch (error) {
+      } catch (error: any) {
+        // Добавлен тип any для error
         console.error("Exception in handleAddPlayer:", error)
-        showAlert(`💥 Исключение при добавлении игрока: ${error}`)
+        showAlert(`💥 Исключение при добавлении игрока: ${error.message || error}`) // Отображаем сообщение об ошибке
       }
     },
     [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase],
@@ -601,15 +611,15 @@ export default function TelegramRouletteApp() {
 
       {/* Эмодзи */}
       <div className="flex justify-center gap-4 mb-6 relative z-10">
-        {["🏠", "😢", "💀", "😂", "💩", "🤡"].map((emoji, index) => (
+        {items.map((item, index) => (
           <Button
             key={index}
             variant="ghost"
-            size="icon"
-            className="w-12 h-12 bg-black/40 hover:bg-black/60 rounded-full text-xl"
+            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white py-3"
             onClick={() => hapticFeedback.selection()}
           >
-            {emoji}
+            <span className="text-lg">{item.icon}</span>
+            <span className="text-xs">{item.label}</span>
           </Button>
         ))}
       </div>
@@ -743,13 +753,7 @@ export default function TelegramRouletteApp() {
       {/* Нижняя навигация */}
       <div className="fixed left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50 mobile-bottom-bar">
         <div className="flex justify-around py-2">
-          {[
-            { icon: "💝", label: "PvP" },
-            { icon: "🔔", label: "Rolls" },
-            { icon: "👤", label: "Мои гифты" },
-            { icon: "🏪", label: "Магазин" },
-            { icon: "⚡", label: "Заработок" },
-          ].map((item, index) => (
+          {items.map((item, index) => (
             <Button
               key={index}
               variant="ghost"
