@@ -67,6 +67,11 @@ export async function ensureUserOnline(
   try {
     const supabase = await getSupabase()
 
+    // !!! ВАЖНО: Логируем данные пользователя, которые приходят в Server Action !!!
+    console.log(
+      `[Server Action] ensureUserOnline - Received: telegramId=${telegramId}, username=${telegramUsername}, avatar=${avatarUrl}, displayName=${displayName}`,
+    )
+
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
       .from("players")
       .select("*")
