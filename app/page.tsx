@@ -342,7 +342,7 @@ export default function TelegramRouletteApp() {
     : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-x-hidden mobile-content-padding">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative">
       {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
         {/* Счетчик игроков в комнате */}
@@ -392,8 +392,8 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          {/* Усиленные стили для диагностики */}
-                          <span className="text-white font-bold bg-red-500 block p-1 border border-yellow-500 text-lg min-w-[50px]">
+                          {/* Откатываем диагностические стили */}
+                          <span className="text-white font-bold text-lg">
                             {player.displayName || "NO DISPLAY NAME"}
                           </span>
                           {player.isParticipant && (
@@ -652,7 +652,7 @@ export default function TelegramRouletteApp() {
       )}
 
       {/* Нижняя навигация */}
-      <div className="fixed left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50 mobile-bottom-bar">
+      <div className="fixed left-0 right-0 bottom-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50">
         <div className="flex justify-around py-2">
           {items.map((item, index) => (
             <Button
