@@ -87,7 +87,6 @@ export default function TelegramRouletteApp() {
         const { room, error } = await getOrCreateRoom(defaultRoomId)
         if (error) {
           console.error("Room initialization error:", error)
-          // showAlert(`Room init error: ${error}`); // УДАЛЕНО
           return
         }
         if (room) {
@@ -107,19 +106,16 @@ export default function TelegramRouletteApp() {
 
         if (onlineError) {
           console.error("Error ensuring user online:", onlineError)
-          // showAlert(`Ensure user online error: ${onlineError}`); // УДАЛЕНО
         } else if (success) {
           const { players, error } = await getPlayersInRoom(defaultRoomId)
           if (!error && players) {
             setPlayersInRoom(players as Player[])
           } else if (error) {
             console.error("Error fetching players:", error)
-            // showAlert(`Fetch players error: ${error}`); // УДАЛЕНО
           }
         }
       } catch (error: any) {
         console.error("Exception in initializeRoom:", error)
-        // showAlert(`Exception in initRoom: ${error.message}`); // УДАЛЕНО
       }
     }
 
@@ -149,7 +145,6 @@ export default function TelegramRouletteApp() {
           const { players, error } = await getPlayersInRoom(defaultRoomId)
           if (error) {
             console.error("Error fetching players after realtime update:", error)
-            // showAlert(`Fetch players after update error: ${error}`); // УДАЛЕНО
             return
           }
           setPlayersInRoom(players as Player[])
@@ -223,18 +218,15 @@ export default function TelegramRouletteApp() {
       try {
         if (!user || !roomState || !supabase) {
           console.error("handleAddPlayer: User, roomState or Supabase client is null", { user, roomState, supabase })
-          // showAlert("AddPlayer: Missing user, room, or supabase."); // УДАЛЕНО
           return
         }
 
         if (roomState.status === "countdown" && roomState.countdown <= 3) {
           console.error("handleAddPlayer: Cannot add player during final countdown.")
-          // showAlert("AddPlayer: Cannot add during countdown."); // УДАЛЕНО
           return
         }
         if (roomState.status === "spinning" || roomState.status === "finished") {
           console.error("handleAddPlayer: Cannot add player during spinning or finished state.")
-          // showAlert("AddPlayer: Cannot add during spin/finish."); // УДАЛЕНО
           return
         }
 
@@ -242,7 +234,6 @@ export default function TelegramRouletteApp() {
         if (existingParticipant) {
           hapticFeedback.notification("error")
           console.error("handleAddPlayer: User is already a participant.")
-          // showAlert("AddPlayer: User already participant."); // УДАЛЕНО
           return
         }
 
@@ -256,12 +247,10 @@ export default function TelegramRouletteApp() {
 
         if (error) {
           console.error("handleAddPlayer: Error adding player via Server Action:", error)
-          // showAlert(`AddPlayer SA error: ${error}`); // УДАЛЕНО
           return
         }
         if (!player) {
           console.error("handleAddPlayer: Server Action returned null player.")
-          // showAlert("AddPlayer SA returned null."); // УДАЛЕНО
           return
         }
 
@@ -281,7 +270,6 @@ export default function TelegramRouletteApp() {
         })
       } catch (error: any) {
         console.error("Exception in handleAddPlayer:", error)
-        // showAlert(`Exception in AddPlayer: ${error.message}`); // УДАЛЕНО
       }
     },
     [user, roomState, playersInRoom, hapticFeedback, supabase],
