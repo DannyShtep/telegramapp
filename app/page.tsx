@@ -105,7 +105,8 @@ export default function TelegramRouletteApp() {
 
         const { success, error: onlineError } = await ensureUserOnline(
           defaultRoomId,
-          user,
+          user.id, // Передаем только ID пользователя
+          user.username, // Передаем только username пользователя
           userAvatar, // Передаем строку
           userDisplayName, // Передаем строку
         )
