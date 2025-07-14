@@ -358,7 +358,7 @@ export default function TelegramRouletteApp() {
               <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] flex flex-col p-0">
+          <DialogContent className="bg-black border-gray-600 rounded-2xl max-w-[320px] w-full max-h-[80vh] flex flex-col p-0">
             <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-green-400" />
@@ -392,10 +392,7 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          {/* Откатываем диагностические стили */}
-                          <span className="text-white font-bold text-lg">
-                            {player.displayName || "NO DISPLAY NAME"}
-                          </span>
+                          <span className="text-white font-bold text-lg">{player.displayName}</span>
                           {player.isParticipant && (
                             <div className="text-xs text-gray-400">
                               {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
