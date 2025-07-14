@@ -632,7 +632,7 @@ export default function TelegramRouletteApp() {
                         />
                         <div className="flex-1">
                           <div className="flex items-center gap-1">
-                            <span className="text-white font-medium">{player.displayName}</span>
+                            <span className="text-white font-medium bg-red-500">{player.displayName}</span>
                           </div>
                           {player.isParticipant && (
                             <div className="text-xs text-gray-400">
