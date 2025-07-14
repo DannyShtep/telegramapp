@@ -387,7 +387,7 @@ export default function TelegramRouletteApp() {
       {/* Счетчик подарков и ТОН */}
       <div className="flex justify-center mb-8 relative z-10">
         <div className="border border-gray-600 px-6 py-3 rounded-xl font-medium text-lg">
-          {formatGiftsText(roomState.total_gifts)} | {roomState.total_ton.toFixed(1)} ТОН
+          {formatGiftsText(roomState.total_gifts)} | {(roomState.total_ton ?? 0).toFixed(1)} ТОН
         </div>
       </div>
 
@@ -661,7 +661,7 @@ export default function TelegramRouletteApp() {
             <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
               {currentWinner.displayName}
             </div>
-            <div className="text-sm text-gray-400 mb-4">Выиграл {roomState.total_ton.toFixed(1)} ТОН</div>
+            <div className="text-sm text-gray-400 mb-4">Выиграл {(roomState.total_ton ?? 0).toFixed(1)} ТОН</div>
             <div className="text-xs text-gray-500">Шанс победы: {currentWinner.percentage.toFixed(1)}%</div>
           </Card>
         </div>
