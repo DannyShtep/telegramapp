@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
-import type { TelegramUser } from "../types/telegram"
+import type { TelegramUser } from "../types/telegram" // Импортируем TelegramWebApp
 import { createClientComponentClient } from "@/lib/supabase"
 import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
 
@@ -320,11 +320,14 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (showPlayersModal) {
       document.body.style.overflow = "hidden"
+      console.log("[Client] Body overflow set to hidden.") // Добавлено логирование
     } else {
       document.body.style.overflow = ""
+      console.log("[Client] Body overflow reset.") // Добавлено логирование
     }
     return () => {
       document.body.style.overflow = "" // Очистка при размонтировании
+      console.log("[Client] Body overflow reset on unmount.") // Добавлено логирование
     }
   }, [showPlayersModal])
 
@@ -610,11 +613,9 @@ export default function TelegramRouletteApp() {
               ) : (
                 <div className="space-y-2">
                   {playersInRoom.map((player) => {
-                    // --- Добавлено логирование данных игрока в модале ---
                     console.log(
                       `[Client] Player in Online modal: id=${player.id}, displayName=${player.displayName}, avatar=${player.avatar}`,
                     )
-                    // --- Конец добавленного логирования ---
                     return (
                       <div
                         key={player.id}
@@ -631,9 +632,8 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          <div className="flex items-center gap-1">
-                            <span className="text-white font-medium bg-red-500">{player.displayName}</span>
-                          </div>
+                          {/* Изменено: убран промежуточный div, span сделан block */}
+                          <span className="text-white font-medium bg-red-500 block">{player.displayName}</span>
                           {player.isParticipant && (
                             <div className="text-xs text-gray-400">
                               {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
