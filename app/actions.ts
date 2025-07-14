@@ -81,12 +81,14 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
 export async function ensureUserOnline(
   roomId: string,
   telegramUser: TelegramUser,
-  getUserPhotoUrl: (user: TelegramUser) => string,
-  getUserDisplayName: (user: TelegramUser) => string,
+  avatarUrl: string, // Изменено с функции на строку
+  displayName: string, // Изменено с функции на строку
 ) {
   console.log("=== ensureUserOnline START ===")
   console.log("roomId:", roomId)
   console.log("telegramUser:", telegramUser)
+  console.log("avatarUrl:", avatarUrl) // Добавлено для отладки
+  console.log("displayName:", displayName) // Добавлено для отладки
 
   const supabase = guardSupabase(
     createServerComponentClient(),
@@ -120,8 +122,8 @@ export async function ensureUserOnline(
       .from("players")
       .update({
         username: telegramUser.username,
-        display_name: getUserDisplayName(telegramUser),
-        avatar: getUserPhotoUrl(telegramUser),
+        display_name: displayName, // Используем переданную строку
+        avatar: avatarUrl, // Используем переданную строку
       })
       .eq("id", existingPlayer.id)
 
@@ -138,8 +140,8 @@ export async function ensureUserOnline(
       room_id: roomId,
       telegram_id: telegramUser.id,
       username: telegramUser.username,
-      display_name: getUserDisplayName(telegramUser),
-      avatar: getUserPhotoUrl(telegramUser),
+      display_name: displayName, // Используем переданную строку
+      avatar: avatarUrl, // Используем переданную строку
       gifts: 0,
       ton_value: 0,
       color: "#4b5563", // Цвет по умолчанию для наблюдателей
