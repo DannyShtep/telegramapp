@@ -14,8 +14,7 @@ export function useTelegram() {
       const tg = window.Telegram.WebApp
       setWebApp(tg)
 
-      // Всегда показываем alert, чтобы подтвердить, что WebApp обнаружен
-      // tg.showAlert(`[TG WebApp Detected]`) // Оставляем этот alert для подтверждения инициализации
+      // Ранее здесь был tg.showAlert(`[TG WebApp Detected]`), но он был удален.
 
       // Инициализируем WebApp
       tg.ready()
@@ -47,7 +46,6 @@ export function useTelegram() {
         first_name: "Test",
         last_name: "User",
         username: "testuser",
-        // photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser", // УДАЛЕНО: Использование внешнего URL может вызывать ошибки в V0 Preview
         language_code: "ru",
       }
       setUser(mockUser)
