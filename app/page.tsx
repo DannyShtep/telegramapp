@@ -2,12 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Plus, X, Eye, Users, Sparkles, Coins } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Plus, Eye, RotateCcw, Trophy } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
+import {
+  getOrCreateRoom,
+  addPlayerToRoom,
+  updateRoomState,
+  getPlayersInRoom,
+  ensureUserOnline,
+  resetRoom,
+} from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { Player } from "@/types/player"
 
@@ -19,14 +26,6 @@ interface RoomState {
   total_gifts: number
   total_ton: number
 }
-
-const items = [
-  { icon: "💝", label: "PvP" },
-  { icon: "🔔", label: "Rolls" },
-  { icon: "👤", label: "Мои гифты" },
-  { icon: "🏪", label: "Магазин" },
-  { icon: "⚡", label: "Заработок" },
-]
 
 export default function TelegramRouletteApp() {
   const { user, isReady, hapticFeedback, getUserPhotoUrl, getUserDisplayName, showAlert } = useTelegram()
@@ -40,7 +39,7 @@ export default function TelegramRouletteApp() {
   const [showWinnerModal, setShowWinnerModal] = useState(false)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
-  const playerColors = ["#ff6b6b", "#4ecdc4", "#45b7d1", "#f9ca24", "#6c5ce7", "#fd79a8"]
+  const playerColors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#F9CA24", "#6A89CC", "#FD79A8", "#F0932B", "#EB4D4B"]
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const spinTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -59,7 +58,7 @@ export default function TelegramRouletteApp() {
       avatar: getUserPhotoUrl(telegramUser) || null,
       gifts: isParticipant ? 1 : 0,
       tonValue: tonValue,
-      color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#6b7280",
+      color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#A9A9A9",
       percentage: 0,
       isParticipant: isParticipant,
     }
@@ -162,36 +161,38 @@ export default function TelegramRouletteApp() {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
-        if (!roomState || roomState.countdown <= 0) return
+        setRoomState((prev) => {
+          if (!prev || prev.countdown <= 0) return prev
+          const newCountdown = prev.countdown - 1
 
-        const newCountdown = roomState.countdown - 1
+          if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
-        if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
+          if (newCountdown === 0) {
+            const winner = selectWinner(participants)
+            const winnerTelegramId = winner ? winner.telegramId : null
 
-        if (newCountdown === 0) {
-          const winner = selectWinner(participants)
-          const winnerTelegramId = winner ? winner.telegramId : null
+            const randomRotation = 5400 + Math.random() * 1440
+            setRotation((prevRot) => prevRot + randomRotation)
+            hapticFeedback.impact("heavy")
+            updateRoomState(defaultRoomId, {
+              status: "spinning",
+              countdown: 0,
+              winner_telegram_id: winnerTelegramId,
+            })
 
-          const randomRotation = 5400 + Math.random() * 1440
-          setRotation((prev) => prev + randomRotation)
-          hapticFeedback.impact("heavy")
-          await updateRoomState(defaultRoomId, {
-            status: "spinning",
-            countdown: 0,
-            winner_telegram_id: winnerTelegramId,
-          })
-
-          if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current)
-          spinTimeoutRef.current = setTimeout(async () => {
-            if (winnerTelegramId) {
-              setShowWinnerModal(true)
-              hapticFeedback.notification("success")
-            }
-            await updateRoomState(defaultRoomId, { status: "finished" })
-          }, 15000)
-        } else {
-          await updateRoomState(defaultRoomId, { countdown: newCountdown })
-        }
+            if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current)
+            spinTimeoutRef.current = setTimeout(async () => {
+              if (winnerTelegramId) {
+                setShowWinnerModal(true)
+                hapticFeedback.notification("success")
+              }
+              await updateRoomState(defaultRoomId, { status: "finished" })
+            }, 15000)
+          } else {
+            updateRoomState(defaultRoomId, { countdown: newCountdown })
+          }
+          return { ...prev, countdown: newCountdown }
+        })
       }, 1000)
     } else if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current)
@@ -199,14 +200,8 @@ export default function TelegramRouletteApp() {
     }
 
     return () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current)
-        countdownIntervalRef.current = null
-      }
-      if (spinTimeoutRef.current) {
-        clearTimeout(spinTimeoutRef.current)
-        spinTimeoutRef.current = null
-      }
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+      if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current)
     }
   }, [roomState, playersInRoom, hapticFeedback])
 
@@ -293,6 +288,17 @@ export default function TelegramRouletteApp() {
     [user, roomState, playersInRoom, hapticFeedback, supabase, showAlert],
   )
 
+  const handleResetRoom = async () => {
+    if (!roomState) return
+    const confirmed = await showAlert("Вы уверены, что хотите сбросить комнату? Все игроки и ставки будут удалены.")
+    if (confirmed) {
+      hapticFeedback.impact("heavy")
+      await resetRoom(roomState.id)
+      setRotation(0)
+      setShowWinnerModal(false)
+    }
+  }
+
   const getWheelSegments = () => {
     const participants = playersInRoom.filter((p) => p.isParticipant)
     if (participants.length === 0) return []
@@ -325,10 +331,9 @@ export default function TelegramRouletteApp() {
 
   if (!supabase) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
-        <div className="text-center p-8 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
-          <p className="text-gray-300">Supabase не настроен. Добавьте переменные окружения или разверните на Vercel.</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+        <div className="text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+          <p>Supabase не настроен. Добавьте переменные окружения или разверните на Vercel.</p>
         </div>
       </div>
     )
@@ -336,19 +341,8 @@ export default function TelegramRouletteApp() {
 
   if (!isReady || !roomState) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-cyan-400/30 border-t-cyan-400 mx-auto mb-6"></div>
-            <div className="absolute inset-0 animate-ping rounded-full h-16 w-16 border-4 border-cyan-400/20 mx-auto"></div>
-          </div>
-          <p className="text-gray-300 text-lg font-medium">Подключение к Telegram и загрузка комнаты...</p>
-          <div className="flex justify-center mt-4 space-x-1">
-            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
-            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     )
   }
@@ -358,482 +352,180 @@ export default function TelegramRouletteApp() {
     : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 text-white relative overflow-hidden">
-      {/* Animated background particles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {[...Array(20)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-white/20 rounded-full animate-twinkle"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-              animationDuration: `${2 + Math.random() * 3}s`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Верхние элементы UI */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
-        {/* Счетчик игроков в комнате */}
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-4 flex flex-col">
+      <header className="flex justify-between items-center mb-4">
         <Dialog>
           <DialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="bg-white/10 hover:bg-white/20 border border-white/20 backdrop-blur-xl text-white h-12 px-6 py-2 rounded-2xl flex items-center justify-center transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
-              onClick={() => hapticFeedback.selection()}
-            >
-              <Eye className="w-4 h-4 mr-2 text-cyan-400" />
-              <span className="text-sm font-medium whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
+            <Button variant="outline" size="sm" onClick={() => hapticFeedback.selection()}>
+              <Eye className="w-4 h-4 mr-2" />
+              Онлайн: {playersInRoom.length}
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-gray-900/90 backdrop-blur-xl border-white/20 rounded-3xl max-w-sm w-full max-h-[60vh] flex flex-col shadow-2xl">
-            <DialogHeader className="flex items-center justify-between p-6 border-b border-white/10 flex-shrink-0 flex-row">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-xl">
-                  <Users className="w-5 h-5 text-white" />
-                </div>
-                <DialogTitle className="text-xl font-bold text-white">Онлайн игроки</DialogTitle>
-              </div>
+          <DialogContent className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md">
+            <DialogHeader>
+              <DialogTitle>Онлайн игроки</DialogTitle>
             </DialogHeader>
-            <div className="flex-1 overflow-y-auto p-6">
-              {playersInRoom.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full mx-auto mb-4 flex items-center justify-center">
-                    <Users className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <p className="text-gray-400">В комнате пока нет игроков</p>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {playersInRoom.map((player) => (
+                <div key={player.id} className="flex items-center gap-3 p-2 rounded-lg">
+                  <img
+                    src={player.avatar || "/placeholder.svg"}
+                    alt="Player"
+                    className="w-10 h-10 rounded-full"
+                    style={{ border: `2px solid ${player.isParticipant ? player.color : "#ccc"}` }}
+                  />
+                  <span>{player.displayName}</span>
+                  {player.isParticipant && <span className="text-xs text-green-500">(Участник)</span>}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {playersInRoom.map((player) => (
-                    <div
-                      key={player.id}
-                      className={`flex items-center gap-4 p-4 rounded-2xl transition-all duration-300 hover:scale-[1.02] ${
-                        player.isParticipant
-                          ? "bg-gradient-to-r from-white/10 to-white/5 border border-white/20"
-                          : "bg-white/5 border border-white/10"
-                      }`}
-                    >
-                      <div className="relative">
-                        <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-twinkle"></div>
-                        <div className="absolute inset-0 w-3 h-3 bg-green-400 rounded-full animate-ping opacity-30"></div>
-                      </div>
-                      <div className="relative">
-                        <img
-                          src={player.avatar || "/placeholder.svg"}
-                          alt="Player"
-                          className="w-10 h-10 rounded-full object-cover shadow-lg"
-                          style={{
-                            border: player.isParticipant ? `3px solid ${player.color}` : "3px solid #6b7280",
-                            boxShadow: player.isParticipant
-                              ? `0 0 20px ${player.color}40`
-                              : "0 0 10px rgba(107, 114, 128, 0.3)",
-                          }}
-                        />
-                        {player.isParticipant && (
-                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                            <Sparkles className="w-2 h-2 text-white" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <span className="text-white font-semibold text-base">{player.displayName}</span>
-                        {player.isParticipant && (
-                          <div className="text-xs text-gray-300 mt-1 flex items-center gap-2">
-                            <span className="px-2 py-1 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-full">
-                              Участник
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
             </div>
           </DialogContent>
         </Dialog>
-
-        {/* Информация о текущем пользователе */}
         {user && (
-          <div className="bg-white/10 border border-white/20 backdrop-blur-xl rounded-2xl px-4 py-2 flex items-center gap-3 h-12 shadow-lg">
-            <div className="relative">
-              <img
-                src={getUserPhotoUrl(user) || "/placeholder.svg"}
-                alt="Avatar"
-                className="w-8 h-8 rounded-full border-2 border-white/30 shadow-lg"
-              />
-              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full border-2 border-white"></div>
-            </div>
-            <span className="text-sm text-white font-medium whitespace-nowrap">{getUserDisplayName(user)}</span>
+          <div className="flex items-center gap-2">
+            <img src={getUserPhotoUrl(user) || "/placeholder.svg"} alt="Avatar" className="w-8 h-8 rounded-full" />
+            <span className="text-sm font-medium">{getUserDisplayName(user)}</span>
           </div>
         )}
-      </div>
+        <Button variant="ghost" size="icon" onClick={handleResetRoom}>
+          <RotateCcw className="w-4 h-4" />
+        </Button>
+      </header>
 
-      {/* Общий банк */}
-      <div className="flex items-center justify-center mb-6 pt-20 relative z-10">
-        <div className="bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 backdrop-blur-xl border border-white/20 rounded-2xl px-6 py-3 shadow-xl">
-          <div className="flex items-center gap-3 text-emerald-400">
-            <div className="relative">
-              <div className="w-3 h-3 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full animate-twinkle"></div>
-              <div className="absolute inset-0 w-3 h-3 bg-emerald-400 rounded-full animate-ping opacity-50"></div>
-            </div>
-            <span className="text-lg font-bold">Общий банк</span>
-            <Coins className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Счетчик подарков и ТОН */}
-      <div className="flex justify-center mb-8 relative z-10">
-        <div className="bg-gradient-to-r from-white/10 to-white/5 backdrop-blur-xl border border-white/20 px-8 py-4 rounded-3xl font-bold text-xl shadow-2xl">
-          <div className="flex items-center gap-4">
-            <span className="text-white">{formatGiftsText(roomState.total_gifts)}</span>
-            <div className="w-px h-6 bg-white/30"></div>
-            <div className="flex items-center gap-2">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">
-                {(roomState.total_ton ?? 0).toFixed(1)} ТОН
-              </span>
-              <div className="w-6 h-6 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-xs font-bold">₮</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Колесо рулетки и указатель */}
-      <div className="flex justify-center items-center mb-8 relative px-4">
-        {/* Указатель */}
-        <div className="absolute top-[-20px] left-1/2 -translate-x-1/2 z-30 transform rotate-180">
-          <div className="relative">
-            <div className="w-0 h-0 border-l-[15px] border-r-[15px] border-b-[25px] border-l-transparent border-r-transparent border-b-gradient-to-r from-emerald-400 to-cyan-400 drop-shadow-lg"></div>
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-r-[12px] border-b-[20px] border-l-transparent border-r-transparent border-b-white"></div>
-          </div>
+      <main className="flex-grow flex flex-col items-center justify-center">
+        <div className="text-center mb-4">
+          <h1 className="text-2xl font-bold">Общий банк</h1>
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            {formatGiftsText(roomState.total_gifts)} / {(roomState.total_ton ?? 0).toFixed(2)} TON
+          </p>
         </div>
 
-        {/* Внешнее кольцо колеса */}
-        <div className="absolute w-96 h-96 rounded-full bg-gradient-to-r from-purple-500/30 to-blue-500/30 animate-spin-slow"></div>
-
-        {/* Колесо */}
-        <div
-          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative shadow-2xl"
-          style={{
-            transform: `rotate(${rotation}deg)`,
-            transition: roomState.status === "spinning" ? "transform 15s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
-            boxShadow: "0 0 60px rgba(59, 130, 246, 0.5), 0 0 100px rgba(147, 51, 234, 0.3)",
-          }}
-        >
-          {roomState.status === "waiting" ? (
-            <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 rounded-full relative border-4 border-white/20">
-              <div className="absolute inset-4 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full"></div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center border-4 border-white/10 shadow-inner">
-                <div className="text-center">
-                  <div className="w-8 h-8 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full mx-auto mb-2 animate-twinkle"></div>
-                  <span className="text-gray-400 text-sm font-medium">Ожидание</span>
-                </div>
+        <div className="relative w-80 h-80 md:w-96 md:h-96 mb-8">
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 w-4 h-4 bg-red-500 rounded-full z-10"
+            style={{ top: "-8px" }}
+          ></div>
+          <div
+            className="w-full h-full rounded-full relative"
+            style={{
+              transform: `rotate(${rotation}deg)`,
+              transition: roomState.status === "spinning" ? "transform 15s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
+            }}
+          >
+            {participants.length === 0 ? (
+              <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                <span className="text-gray-500">Ожидание игроков</span>
               </div>
-            </div>
-          ) : participants.length === 1 && roomState.status === "single_player" ? (
-            <div
-              className="w-full h-full rounded-full relative border-4 border-white/30"
-              style={{
-                background: `linear-gradient(135deg, ${participants[0]?.color}80, ${participants[0]?.color}40)`,
-                boxShadow: `0 0 40px ${participants[0]?.color}60`,
-              }}
-            >
-              <div
-                className="absolute inset-4 rounded-full"
-                style={{ backgroundColor: `${participants[0]?.color}20` }}
-              ></div>
-              <div className="absolute top-16 left-16 w-12 h-12 rounded-full overflow-hidden border-4 border-white shadow-lg">
-                <img
-                  src={participants[0]?.avatar || "/placeholder.svg"}
-                  alt="Player"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center border-4 border-white/20 shadow-inner">
-                <div className="text-center">
-                  <div className="w-8 h-8 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full mx-auto mb-2 animate-twinkle"></div>
-                  <span className="text-gray-300 text-sm font-medium">Ожидание</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="absolute inset-0 rounded-full border-4 border-white/30 shadow-inner"></div>
+            ) : (
               <svg className="w-full h-full" viewBox="0 0 200 200">
-                <defs>
-                  {segments.map((segment, index) => (
-                    <linearGradient
-                      key={`gradient-${index}`}
-                      id={`gradient-${index}`}
-                      x1="0%"
-                      y1="0%"
-                      x2="100%"
-                      y2="100%"
-                    >
-                      <stop offset="0%" stopColor={segment.player.color} />
-                      <stop offset="100%" stopColor={`${segment.player.color}80`} />
-                    </linearGradient>
-                  ))}
-                </defs>
                 {segments.map((segment, index) => {
                   const startAngleRad = (segment.startAngle * Math.PI) / 180
                   const endAngleRad = (segment.endAngle * Math.PI) / 180
                   const largeArcFlag = segment.angle > 180 ? 1 : 0
-
-                  const x1 = 100 + 95 * Math.cos(startAngleRad)
-                  const y1 = 100 + 95 * Math.sin(startAngleRad)
-                  const x2 = 100 + 95 * Math.cos(endAngleRad)
-                  const y2 = 100 + 95 * Math.sin(endAngleRad)
-
-                  const pathData = [`M 100 100`, `L ${x1} ${y1}`, `A 95 95 0 ${largeArcFlag} 1 ${x2} ${y2}`, "Z"].join(
-                    " ",
-                  )
-
-                  const midAngle = (segment.startAngle + segment.endAngle) / 2
-                  const midAngleRad = (midAngle * Math.PI) / 180
-                  const avatarX = 100 + 65 * Math.cos(midAngleRad)
-                  const avatarY = 100 + 65 * Math.sin(midAngleRad)
-
-                  return (
-                    <g key={index}>
-                      <path
-                        d={pathData}
-                        fill={`url(#gradient-${index})`}
-                        stroke="rgba(255,255,255,0.2)"
-                        strokeWidth="1"
-                      />
-                      <circle
-                        cx={avatarX}
-                        cy={avatarY}
-                        r="12"
-                        fill="white"
-                        stroke={segment.player.color}
-                        strokeWidth="3"
-                        filter="drop-shadow(0 4px 8px rgba(0,0,0,0.3))"
-                      />
-                      <image
-                        x={avatarX - 12}
-                        y={avatarY - 12}
-                        width="24"
-                        height="24"
-                        href={segment.player.avatar || "/placeholder.svg"}
-                        clipPath="circle(12px at center)"
-                      />
-                    </g>
-                  )
+                  const x1 = 100 + 100 * Math.cos(startAngleRad)
+                  const y1 = 100 + 100 * Math.sin(startAngleRad)
+                  const x2 = 100 + 100 * Math.cos(endAngleRad)
+                  const y2 = 100 + 100 * Math.sin(endAngleRad)
+                  const pathData = `M 100 100 L ${x1} ${y1} A 100 100 0 ${largeArcFlag} 1 ${x2} ${y2} Z`
+                  return <path key={index} d={pathData} fill={segment.player.color} />
                 })}
               </svg>
-
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center border-4 border-white/20 shadow-2xl">
-                {roomState.status === "countdown" ? (
-                  <div className="text-center">
-                    <div className="text-2xl font-mono font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-500 mb-1">
-                      {String(Math.floor(roomState.countdown / 60)).padStart(2, "0")}:
-                      {String(roomState.countdown % 60).padStart(2, "0")}
-                    </div>
-                    <div className="w-16 h-1 bg-gradient-to-r from-red-500 to-orange-500 rounded-full animate-twinkle"></div>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="w-8 h-8 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full mx-auto mb-2 animate-spin"></div>
-                    <span className="text-gray-300 text-sm font-medium">
-                      {roomState.status === "spinning" ? "Крутим!" : "Ожидание"}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+            )}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center text-center">
+              {roomState.status === "countdown" ? (
+                <span className="text-3xl font-bold">{roomState.countdown}</span>
+              ) : (
+                <span className="text-sm text-gray-500">{roomState.status === "spinning" ? "Крутим!" : "Старт"}</span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
 
-      {/* Кнопки действий */}
-      <div className="flex gap-4 px-4 mb-8 relative z-10">
-        <Button
-          className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-4 rounded-2xl disabled:from-gray-600 disabled:to-gray-700 disabled:text-gray-400 transition-all duration-300 hover:scale-105 shadow-xl hover:shadow-2xl border border-white/20"
-          onClick={() => handleAddPlayer(true)}
-          disabled={
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && roomState.countdown <= 3)
-          }
-        >
-          <div className="flex items-center justify-center gap-3">
-            <div className="p-1 bg-white/20 rounded-full">
-              <Plus className="w-5 h-5" />
-            </div>
-            <span className="text-lg">Добавить гифт</span>
-            <Sparkles className="w-5 h-5" />
-          </div>
-        </Button>
-
-        <Button
-          className={`flex-1 font-bold py-4 rounded-2xl flex items-center justify-center transition-all duration-300 hover:scale-105 shadow-xl hover:shadow-2xl border border-white/20 ${
-            roomState.status === "countdown" && roomState.countdown <= 3
-              ? "bg-gradient-to-r from-gray-600 to-gray-700 text-gray-400 cursor-not-allowed"
-              : "bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white"
-          }`}
-          onClick={() => {
-            handleAddPlayer(false, displayedTonAmount)
-            setDisplayedTonAmount(Math.floor(Math.random() * 20 + 5))
-          }}
-          disabled={
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && roomState.countdown <= 3)
-          }
-        >
-          <div className="flex items-center justify-center gap-3">
-            <span className="text-3xl">🎁</span>
-            <div className="text-center">
-              <div className={`font-bold ${tonButtonFontSizeClass}`}>Добавить {displayedTonAmount} ТОН</div>
-            </div>
-            <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
-              <span className="text-xs">₮</span>
-            </div>
-          </div>
-        </Button>
-      </div>
-
-      {/* Эмодзи навигация */}
-      <div className="flex justify-center gap-6 mb-8 relative z-10">
-        {items.map((item, index) => (
+        <div className="flex gap-4 mb-4">
           <Button
-            key={index}
-            variant="ghost"
-            className="flex flex-col items-center gap-2 text-gray-400 hover:text-white py-4 px-4 rounded-2xl hover:bg-white/10 transition-all duration-300 hover:scale-110"
-            onClick={() => hapticFeedback.selection()}
+            onClick={() => handleAddPlayer(true)}
+            disabled={
+              roomState.status === "spinning" ||
+              roomState.status === "finished" ||
+              (roomState.status === "countdown" && roomState.countdown <= 3)
+            }
           >
-            <div className="text-2xl p-2 bg-white/10 rounded-xl backdrop-blur-sm border border-white/20">
-              {item.icon}
-            </div>
-            <span className="text-xs font-medium">{item.label}</span>
+            <Plus className="mr-2 h-4 w-4" /> Добавить гифт
           </Button>
-        ))}
-      </div>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              handleAddPlayer(false, displayedTonAmount)
+              setDisplayedTonAmount(Math.floor(Math.random() * 20 + 5))
+            }}
+            disabled={
+              roomState.status === "spinning" ||
+              roomState.status === "finished" ||
+              (roomState.status === "countdown" && roomState.countdown <= 3)
+            }
+          >
+            Добавить {displayedTonAmount} TON
+          </Button>
+        </div>
+      </main>
 
-      {/* Список игроков */}
-      <div className="px-4 mb-8 relative z-10">
-        {participants.length === 0 ? (
-          <Card className="bg-white/10 backdrop-blur-xl border-white/20 p-6 text-center mb-4 rounded-3xl shadow-xl">
-            <div className="w-16 h-16 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <Users className="w-8 h-8 text-gray-400" />
-            </div>
-            <p className="text-gray-400 text-lg">Нет участников</p>
-            <p className="text-gray-500 text-sm mt-2">Добавьте гифт, чтобы начать игру</p>
-          </Card>
-        ) : (
-          participants.map((player, index) => (
-            <div key={player.id} className="mb-4">
-              <Card className="bg-white/10 backdrop-blur-xl border-white/20 p-5 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
-                      <img
-                        src={player.avatar || "/placeholder.svg"}
-                        alt="Player"
-                        className="w-12 h-12 rounded-full object-cover shadow-lg"
-                        style={{
-                          border: `3px solid ${player.color}`,
-                          boxShadow: `0 0 20px ${player.color}40`,
-                        }}
-                      />
-                      <div
-                        className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white"
-                        style={{ backgroundColor: player.color }}
-                      >
-                        <span className="text-white text-xs font-bold">#{index + 1}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-white font-bold text-lg">{player.displayName}</span>
-                      <div className="text-gray-300 text-sm">Участник игры</div>
-                    </div>
+      <footer className="w-full max-w-md mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>Участники</CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-48 overflow-y-auto">
+            {participants.length === 0 ? (
+              <p className="text-sm text-gray-500">Нет участников. Добавьте гифт, чтобы начать.</p>
+            ) : (
+              participants.map((player) => (
+                <div
+                  key={player.id}
+                  className="flex items-center justify-between p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: player.color }}></div>
+                    <img src={player.avatar || "/placeholder.svg"} alt="avatar" className="w-6 h-6 rounded-full" />
+                    <span>{player.displayName}</span>
                   </div>
-                  <div className="flex gap-3">
-                    <div className="bg-gradient-to-r from-white/20 to-white/10 backdrop-blur-sm text-white px-4 py-2 rounded-2xl text-sm font-bold border border-white/20">
-                      {player.percentage.toFixed(player.percentage < 10 ? 2 : 0)}%
-                    </div>
-                    <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-sm text-white px-4 py-2 rounded-2xl text-sm font-bold border border-yellow-500/30 flex items-center gap-2">
-                      <span>{player.tonValue.toFixed(1)} ТОН</span>
-                      <div className="w-4 h-4 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                        <span className="text-white text-xs">₮</span>
-                      </div>
-                    </div>
-                  </div>
+                  <span className="text-sm font-medium">
+                    {player.percentage.toFixed(2)}% ({player.tonValue.toFixed(2)} TON)
+                  </span>
                 </div>
-              </Card>
-            </div>
-          ))
-        )}
-      </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </footer>
 
-      {/* Модал победителя */}
       {showWinnerModal && currentWinner && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="bg-gradient-to-br from-purple-900/90 to-blue-900/90 backdrop-blur-xl border-white/20 p-8 rounded-3xl max-w-sm w-full text-center relative shadow-2xl">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute top-4 right-4 text-gray-400 hover:text-white bg-white/10 rounded-full w-10 h-10"
-              onClick={() => setShowWinnerModal(false)}
-            >
-              <X className="w-5 h-5" />
-            </Button>
-            <div className="text-6xl mb-6 animate-bounce">🎉</div>
-            <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 mb-4">
-              Победитель!
-            </h2>
-            <div className="relative mb-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card className="w-full max-w-sm text-center p-6">
+            <CardHeader>
+              <div className="mx-auto bg-yellow-400 rounded-full p-3 w-fit">
+                <Trophy className="w-8 h-8 text-white" />
+              </div>
+              <CardTitle className="mt-4">Победитель!</CardTitle>
+            </CardHeader>
+            <CardContent>
               <img
                 src={currentWinner.avatar || "/placeholder.svg"}
                 alt="Winner"
-                className="w-20 h-20 rounded-full mx-auto object-cover shadow-2xl border-4 border-white"
-                style={{ boxShadow: `0 0 40px ${currentWinner.color}60` }}
+                className="w-20 h-20 rounded-full mx-auto mb-4 border-4"
+                style={{ borderColor: currentWinner.color }}
               />
-              <div className="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center animate-spin">
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-            </div>
-            <div className="text-xl text-white mb-4 font-bold">{currentWinner.displayName}</div>
-            <div className="bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 backdrop-blur-sm border border-emerald-500/30 rounded-2xl p-4 mb-4">
-              <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
-                Выиграл {(roomState.total_ton ?? 0).toFixed(1)} ТОН
-              </div>
-            </div>
-            <div className="text-sm text-gray-400">
-              Шанс победы: <span className="text-white font-bold">{currentWinner.percentage.toFixed(1)}%</span>
-            </div>
+              <p className="text-lg font-semibold">{currentWinner.displayName}</p>
+              <p className="text-xl font-bold text-green-500 mt-2">
+                Выиграл {(roomState.total_ton ?? 0).toFixed(2)} TON
+              </p>
+              <p className="text-sm text-gray-500 mt-1">Шанс победы: {currentWinner.percentage.toFixed(2)}%</p>
+              <Button className="mt-6" onClick={() => setShowWinnerModal(false)}>
+                Закрыть
+              </Button>
+            </CardContent>
           </Card>
         </div>
       )}
-
-      {/* Нижняя навигация */}
-      <div className="fixed left-0 right-0 bottom-0 bg-black/80 backdrop-blur-xl border-t border-white/20 z-50">
-        <div className="flex justify-around py-3">
-          {items.map((item, index) => (
-            <Button
-              key={index}
-              variant="ghost"
-              className="flex flex-col items-center gap-2 text-gray-400 hover:text-white py-4 px-4 rounded-2xl hover:bg-white/10 transition-all duration-300"
-              onClick={() => hapticFeedback.selection()}
-            >
-              <div className="text-xl p-2 bg-white/10 rounded-xl backdrop-blur-sm border border-white/20">
-                {item.icon}
-              </div>
-              <span className="text-xs font-medium">{item.label}</span>
-            </Button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }
