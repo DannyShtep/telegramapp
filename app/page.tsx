@@ -82,6 +82,10 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!isReady || !user || !supabase) return // supabase может быть null в локальном превью
 
+    // --- Добавлено логирование объекта user ---
+    console.log("[Client] Telegram User object in page.tsx (from useTelegram):", JSON.stringify(user, null, 2))
+    // --- Конец добавленного логирования ---
+
     const initializeRoom = async () => {
       try {
         const { room, error } = await getOrCreateRoom(defaultRoomId)
@@ -605,33 +609,40 @@ export default function TelegramRouletteApp() {
                 <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
               ) : (
                 <div className="space-y-2">
-                  {playersInRoom.map((player) => (
-                    <div
-                      key={player.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg ${
-                        player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
-                      }`}
-                    >
-                      {/* Индикатор онлайн */}
-                      <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
-                      <img
-                        src={player.avatar || "/placeholder.svg"}
-                        alt="Player"
-                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                        style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white font-medium">{player.displayName}</span>
-                        </div>
-                        {player.isParticipant && (
-                          <div className="text-xs text-gray-400">
-                            {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                  {playersInRoom.map((player) => {
+                    // --- Добавлено логирование данных игрока в модале ---
+                    console.log(
+                      `[Client] Player in Online modal: id=${player.id}, displayName=${player.displayName}, avatar=${player.avatar}`,
+                    )
+                    // --- Конец добавленного логирования ---
+                    return (
+                      <div
+                        key={player.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg ${
+                          player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
+                        }`}
+                      >
+                        {/* Индикатор онлайн */}
+                        <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                        <img
+                          src={player.avatar || "/placeholder.svg"}
+                          alt="Player"
+                          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                          style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-1">
+                            <span className="text-white font-medium">{player.displayName}</span>
                           </div>
-                        )}
+                          {player.isParticipant && (
+                            <div className="text-xs text-gray-400">
+                              {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
