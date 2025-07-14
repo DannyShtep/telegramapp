@@ -46,7 +46,11 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
       }
     }
 
-    const supabase = getSupabase()! // Уверены, что supabase не null, так как isDemo = false
+    const supabase = await getSupabase() // Ожидаем асинхронную функцию
+    if (!supabase) {
+      console.error("getOrCreateRoom: Supabase client is not available. Check environment variables.")
+      return { room: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
+    }
 
     // Попытка получить комнату
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
@@ -96,7 +100,14 @@ export async function ensureUserOnline(
       return { success: true, error: null }
     }
 
-    const supabase = getSupabase()!
+    const supabase = await getSupabase()
+    if (!supabase) {
+      console.error("ensureUserOnline: Supabase client is not available. Check environment variables.")
+      return {
+        success: false,
+        error: "Supabase client not configured. Please check your Vercel environment variables.",
+      }
+    }
 
     console.log("ensureUserOnline: Checking user presence for Telegram ID:", telegramId)
 
@@ -178,7 +189,11 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
       return { player: playerData, error: null }
     }
 
-    const supabase = getSupabase()!
+    const supabase = await getSupabase()
+    if (!supabase) {
+      console.error("addPlayerToRoom: Supabase client is not available. Check environment variables.")
+      return { player: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
+    }
 
     // Проверяем, существует ли игрок уже в этой комнате
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
@@ -267,7 +282,12 @@ export async function updateRoomState(
       return { room: { id: roomId, ...newState }, error: null }
     }
 
-    const supabase = getSupabase()!
+    const supabase = await getSupabase()
+    if (!supabase) {
+      console.error("updateRoomState: Supabase client is not available. Check environment variables.")
+      return { room: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
+    }
+
     console.log("updateRoomState: Attempting to update room state for room:", roomId, "with data:", newState)
     const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
@@ -293,7 +313,14 @@ export async function resetRoom(roomId: string) {
       return { success: true, error: null }
     }
 
-    const supabase = getSupabase()!
+    const supabase = await getSupabase()
+    if (!supabase) {
+      console.error("resetRoom: Supabase client is not available. Check environment variables.")
+      return {
+        success: false,
+        error: "Supabase client not configured. Please check your Vercel environment variables.",
+      }
+    }
 
     console.log("resetRoom: Attempting to reset room and delete players for room:", roomId)
     // Удаляем всех игроков из комнаты
@@ -341,7 +368,12 @@ export async function getPlayersInRoom(roomId: string) {
       return { players: [], error: null }
     }
 
-    const supabase = getSupabase()!
+    const supabase = await getSupabase()
+    if (!supabase) {
+      console.error("getPlayersInRoom: Supabase client is not available. Check environment variables.")
+      return { players: [], error: "Supabase client not configured. Please check your Vercel environment variables." }
+    }
+
     const { data, error } = await supabase
       .from("players")
       .select("*")
