@@ -15,7 +15,6 @@ export function useTelegram() {
       setWebApp(tg)
 
       // Всегда показываем alert, чтобы подтвердить, что WebApp обнаружен
-      // Это первое сообщение, которое должно появиться, если WebApp доступен
       tg.showAlert(`[TG WebApp Detected]`)
 
       // Инициализируем WebApp
@@ -34,6 +33,11 @@ export function useTelegram() {
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
+        // Этот alert покажет данные пользователя, если они есть, в нативном приложении
+        tg.showAlert(`[TG User Data from WebApp] ${JSON.stringify(tg.initDataUnsafe.user)}`)
+      } else {
+        // Этот alert покажет, если WebApp обнаружен, но данные пользователя отсутствуют
+        tg.showAlert("[TG WebApp] User data missing in initDataUnsafe.")
       }
 
       setIsReady(true)
@@ -49,8 +53,8 @@ export function useTelegram() {
       }
       setUser(mockUser)
       setIsReady(true)
-      // Этот alert должен всегда появляться, если Telegram WebApp НЕ обнаружен
-      alert(`[MOCK DATA FALLBACK] User Data: ${JSON.stringify(mockUser)}`)
+      // В браузере выводим в консоль, чтобы не блокировать UI
+      console.log(`[MOCK DATA FALLBACK] User Data: ${JSON.stringify(mockUser)}`)
     }
   }, []) // Пустой массив зависимостей, чтобы эффект запускался только один раз при монтировании
 
@@ -70,8 +74,8 @@ export function useTelegram() {
     if (webApp) {
       webApp.showAlert(message)
     } else {
-      // Fallback на браузерный alert, если webApp недоступен
-      alert(`[Browser Alert] ${message}`)
+      // Fallback на console.log для браузера, чтобы не блокировать UI
+      console.log(`[Browser Console Alert] ${message}`)
     }
   }
 
