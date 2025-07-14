@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
 
 /** Returns Supabase client or `null` if env vars are missing. */
-export function getSupabase() {
+export async function getSupabase() {
   const client = createServerComponentClient()
   // Проверяем наличие NEXT_PUBLIC_SUPABASE_URL, так как createServerComponentClient может вернуть клиент,
   // даже если SUPABASE_SERVICE_ROLE_KEY отсутствует, но мы хотим, чтобы он был полностью настроен.
