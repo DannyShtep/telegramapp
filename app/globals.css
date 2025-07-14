@@ -238,9 +238,3 @@ svg path:hover {
     padding-right: 1.5rem;
   }
 }
-
-/* New class to prevent scrolling */
-.no-scroll {
-  overflow: hidden !important; /* Используем !important для принудительного отключения прокрутки */
-  touch-action: none; /* Предотвращает стандартные сенсорные действия, такие как прокрутка */
-}
