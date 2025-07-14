@@ -346,7 +346,7 @@ export default function TelegramRouletteApp() {
               <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-black/90 border-gray-600 rounded-2xl max-w-md w-full max-h-[70vh] flex flex-col">
+          <DialogContent className="bg-gray-900/80 backdrop-blur-sm border-gray-700 rounded-2xl max-w-sm w-full max-h-[60vh] flex flex-col">
             <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-green-400" />
@@ -376,18 +376,18 @@ export default function TelegramRouletteApp() {
                         <img
                           src={player.avatar || "/placeholder.svg"}
                           alt="Player"
-                          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                          className="w-6 h-6 rounded-full object-cover flex-shrink-0"
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
                           {/* Теперь player.displayName должен быть корректным */}
-                          <span className="text-white font-bold text-lg">{player.displayName}</span>
+                          <span className="text-white font-medium text-base">{player.displayName}</span>
                           {/* Удаляем отображение tonValue и percentage из этого модального окна */}
                           {/* {player.isParticipant && (
-                        <div className="text-xs text-gray-400">
-                          {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
-                        </div>
-                      )} */}
+                      <div className="text-xs text-gray-400">
+                        {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                      </div>
+                    )} */}
                         </div>
                       </div>
                     )
@@ -588,11 +588,11 @@ export default function TelegramRouletteApp() {
                     <img
                       src={player.avatar || "/placeholder.svg"}
                       alt="Player"
-                      className="w-8 h-8 rounded-full object-cover"
+                      className="w-6 h-6 rounded-full object-cover flex-shrink-0"
                       style={{ border: `2px solid ${player.color}` }}
                     />
                     <div>
-                      <span className="text-white font-medium">{player.displayName}</span>
+                      <span className="text-white font-medium text-base">{player.displayName}</span>
                     </div>
                   </div>
                   <div className="flex gap-2">
