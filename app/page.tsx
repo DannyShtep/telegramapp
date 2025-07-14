@@ -97,7 +97,7 @@ export default function TelegramRouletteApp() {
         const userAvatar = getUserPhotoUrl(user)
         const userDisplayName = getUserDisplayName(user)
 
-        // Удаляем этот showAlert, так как он вызывал бесконечный цикл в браузере
+        // УДАЛЕНО: Этот showAlert вызывал бесконечный цикл в браузере
         // showAlert(`Page: User Avatar: ${userAvatar}, Display Name: ${userDisplayName}, Username: ${user.username}`);
 
         const { success, error: onlineError } = await ensureUserOnline(
@@ -599,7 +599,7 @@ export default function TelegramRouletteApp() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-gray-400 hover:text-white"
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
                 onClick={() => {
                   hapticFeedback.selection()
                   setShowPlayersModal(false)
