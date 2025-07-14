@@ -330,7 +330,7 @@ export default function TelegramRouletteApp() {
     : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-x-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden">
       {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
         {/* Счетчик игроков в комнате */}
@@ -346,7 +346,7 @@ export default function TelegramRouletteApp() {
               <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-black border-gray-600 rounded-2xl max-w-md w-full max-h-[80vh] flex flex-col">
+          <DialogContent className="bg-black/90 border-gray-600 rounded-2xl max-w-md w-full max-h-[70vh] flex flex-col">
             <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-green-400" />
@@ -384,10 +384,10 @@ export default function TelegramRouletteApp() {
                           <span className="text-white font-bold text-lg">{player.displayName}</span>
                           {/* Удаляем отображение tonValue и percentage из этого модального окна */}
                           {/* {player.isParticipant && (
-                          <div className="text-xs text-gray-400">
-                            {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
-                          </div>
-                        )} */}
+                        <div className="text-xs text-gray-400">
+                          {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                        </div>
+                      )} */}
                         </div>
                       </div>
                     )
