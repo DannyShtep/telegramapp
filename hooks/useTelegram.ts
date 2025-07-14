@@ -102,7 +102,9 @@ export function useTelegram() {
     if (user.username) {
       return `@${user.username}`
     }
-    return `${user.first_name}${user.last_name ? " " + user.last_name : ""}`
+    const fullName = `${user.first_name || ""}${user.last_name ? " " + user.last_name : ""}`.trim()
+    // Если fullName пустой, используем "User [ID]" или "Unknown User" как последний запасной вариант.
+    return fullName || (user.id ? `User ${user.id}` : "Unknown User")
   }
 
   return {
