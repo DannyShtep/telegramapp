@@ -29,6 +29,7 @@ export function useTelegram() {
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
+        console.log("Telegram User Data:", tg.initDataUnsafe.user)
       }
 
       setIsReady(true)
@@ -39,8 +40,8 @@ export function useTelegram() {
         first_name: "Test",
         last_name: "User",
         username: "testuser",
+        photo_url: "https://api.dicebear.com/7.x/avataaars/svg?seed=testuser", // Добавлено для тестирования
         language_code: "ru",
-        // is_premium: true, // Удалено для соответствия запросу
       }
       setUser(mockUser)
       setIsReady(true)
