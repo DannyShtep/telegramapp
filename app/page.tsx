@@ -78,69 +78,69 @@ export default function TelegramRouletteApp() {
     if (!isReady || !user) return
 
     const initializeRoom = async () => {
-      console.log("=== INITIALIZE ROOM START ===")
-      console.log("User data:", user)
-      console.log("isReady:", isReady)
-      console.log("Supabase client:", !!supabase)
-
-      console.log("Initializing room...")
-      const { room, error } = await getOrCreateRoom(defaultRoomId)
-      if (error) {
-        showAlert(`Ошибка инициализации комнаты: ${error}`)
-        console.error("Room initialization error:", error)
-        return
-      }
-      if (room) {
-        setRoomState(room)
-        console.log("Room state initialized:", room)
-      }
-
-      // НОВОЕ: Обеспечиваем присутствие пользователя в списке "Онлайн"
-      console.log("=== ENSURING USER ONLINE ===")
-      console.log("About to call ensureUserOnline with:", {
-        roomId: defaultRoomId,
-        user: user,
-        getUserPhotoUrl: typeof getUserPhotoUrl,
-        getUserDisplayName: typeof getUserDisplayName,
-      })
-
       try {
+        console.log("=== INITIALIZE ROOM START ===")
+        showAlert("🔧 Инициализация комнаты...")
+
+        console.log("Initializing room...")
+        const { room, error } = await getOrCreateRoom(defaultRoomId)
+        if (error) {
+          showAlert(`❌ Ошибка инициализации комнаты: ${error}`)
+          console.error("Room initialization error:", error)
+          return
+        }
+        if (room) {
+          setRoomState(room)
+          console.log("Room state initialized:", room)
+          showAlert("✅ Комната инициализирована!")
+        }
+
+        // НОВОЕ: Обеспечиваем присутствие пользователя в списке "Онлайн"
+        console.log("=== ENSURING USER ONLINE ===")
+        showAlert("🔧 Добавляем вас в список онлайн...")
+
+        // Получаем данные аватара и отображаемого имени на клиентской стороне
+        const userAvatar = getUserPhotoUrl(user)
+        const userDisplayName = getUserDisplayName(user)
+
         const { success, error: onlineError } = await ensureUserOnline(
           defaultRoomId,
           user,
-          getUserPhotoUrl,
-          getUserDisplayName,
+          userAvatar, // Передаем строку
+          userDisplayName, // Передаем строку
         )
 
         console.log("ensureUserOnline result:", { success, onlineError })
 
         if (onlineError) {
           console.error("Error ensuring user online:", onlineError)
-          showAlert(`Ошибка добавления в онлайн: ${onlineError}`)
+          showAlert(`❌ Ошибка добавления в онлайн: ${onlineError}`)
         } else if (success) {
           console.log("User successfully added to online list")
-          showAlert("Вы добавлены в список онлайн!")
+          showAlert("✅ Вы добавлены в список онлайн!")
 
           // Обновляем список игроков после добавления пользователя
           console.log("Fetching updated players list...")
+          showAlert("🔧 Загружаем список игроков...")
+
           const { players, error: playersError } = await getPlayersInRoom(defaultRoomId)
           console.log("getPlayersInRoom result:", { players, playersError })
 
           if (!playersError && players) {
             setPlayersInRoom(players as Player[])
             console.log("Players list updated after ensuring user online:", players)
-            showAlert(`Список игроков обновлен! Всего: ${players.length}`)
+            showAlert(`✅ Список игроков обновлен! Всего: ${players.length}`)
           } else if (playersError) {
             console.error("Error fetching players:", playersError)
-            showAlert(`Ошибка получения игроков: ${playersError}`)
+            showAlert(`❌ Ошибка получения игроков: ${playersError}`)
           }
         }
-      } catch (error) {
-        console.error("Exception in ensureUserOnline:", error)
-        showAlert(`Исключение при добавлении в онлайн: ${error}`)
-      }
 
-      console.log("=== INITIALIZE ROOM END ===")
+        console.log("=== INITIALIZE ROOM END ===")
+      } catch (error) {
+        console.error("Exception in initializeRoom:", error)
+        showAlert(`💥 Исключение при инициализации: ${error}`)
+      }
     }
 
     initializeRoom()
@@ -255,101 +255,107 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
-      console.log("=== HANDLE ADD PLAYER START ===")
-      console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
-      console.log("Current user:", user)
-      console.log("Current roomState:", roomState)
-      console.log("Current playersInRoom:", playersInRoom)
+      try {
+        console.log("=== HANDLE ADD PLAYER START ===")
+        console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
 
-      // НОВОЕ: Добавляем showAlert для отладки
-      showAlert(`🔧 Отладка: Начинаем добавление игрока`)
+        // Первое сообщение (это работает, как мы видим из скриншотов)
+        showAlert(`Начинаем добавление игрока. Гифт: ${isGift}, ТОН: ${tonAmountToAdd || "случайно"}`)
 
-      if (!user || !roomState) {
-        const errorMsg = `Ошибка: user=${!!user}, roomState=${!!roomState}`
-        showAlert(errorMsg)
-        console.error("handleAddPlayer: User or roomState is null", { user, roomState })
-        return
-      }
+        // Добавляем задержку, чтобы пользователь увидел сообщение
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      showAlert(`🔧 Отладка: Проверяем статус комнаты: ${roomState.status}`)
+        showAlert("🔧 Проверяем данные пользователя и комнаты...")
 
-      console.log("handleAddPlayer called. isGift:", isGift, "tonAmountToAdd:", tonAmountToAdd)
+        if (!user || !roomState) {
+          const errorMsg = `❌ Ошибка: user=${!!user}, roomState=${!!roomState}`
+          showAlert(errorMsg)
+          console.error("handleAddPlayer: User or roomState is null", { user, roomState })
+          return
+        }
 
-      // НОВОЕ: Добавляем showAlert для отладки
-      showAlert(`Начинаем добавление игрока. Гифт: ${isGift}, ТОН: ${tonAmountToAdd || "случайно"}`)
+        showAlert(`✅ Данные OK. Статус комнаты: ${roomState.status}`)
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      if (!user || !roomState) {
-        showAlert("Ошибка: не удалось получить данные пользователя Telegram или комнаты.")
-        console.error("handleAddPlayer: User or roomState is null", { user, roomState })
-        return
-      }
+        if (roomState.status === "countdown" && roomState.countdown <= 3) {
+          showAlert("❌ Нельзя добавить игрока во время финального отсчета.")
+          console.log("handleAddPlayer: Cannot add player during final countdown.")
+          return
+        }
+        if (roomState.status === "spinning" || roomState.status === "finished") {
+          showAlert("❌ Нельзя добавить игрока во время вращения или после завершения.")
+          console.log("handleAddPlayer: Cannot add player during spinning or finished state.")
+          return
+        }
 
-      if (roomState.status === "countdown" && roomState.countdown <= 3) {
-        showAlert("Нельзя добавить игрока во время финального отсчета.")
-        console.log("handleAddPlayer: Cannot add player during final countdown.")
-        return
-      }
-      if (roomState.status === "spinning" || roomState.status === "finished") {
-        showAlert("Нельзя добавить игрока во время вращения или после завершения.")
-        console.log("handleAddPlayer: Cannot add player during spinning or finished state.")
-        return
-      }
+        const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
+        if (existingParticipant) {
+          hapticFeedback.notification("error")
+          showAlert("❌ Вы уже участвуете в игре!")
+          console.log("handleAddPlayer: User is already a participant.")
+          return
+        }
 
-      const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
-      if (existingParticipant) {
-        hapticFeedback.notification("error")
-        showAlert("Вы уже участвуете в игре!")
-        console.log("handleAddPlayer: User is already a participant.")
-        return
-      }
+        showAlert("🔧 Создаем объект игрока...")
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      const tonValue = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
-      const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
+        const tonValue = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
+        const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
-      hapticFeedback.impact("medium")
-      console.log("handleAddPlayer: Attempting to add player via Server Action with data:", newPlayer)
+        hapticFeedback.impact("medium")
+        console.log("handleAddPlayer: Attempting to add player via Server Action with data:", newPlayer)
 
-      // НОВОЕ: Добавляем showAlert для отладки
-      showAlert(`Отправляем данные на сервер. ТОН: ${tonValue.toFixed(1)}`)
+        showAlert(`🔧 Отправляем данные на сервер. ТОН: ${tonValue.toFixed(1)}`)
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      // Добавляем/обновляем игрока через Server Action
-      const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
-      if (error) {
-        showAlert(`Ошибка добавления игрока: ${error}`)
-        console.error("handleAddPlayer: Error adding player via Server Action:", error)
-        return
-      }
-      if (!player) {
-        showAlert("Ошибка: Server Action не вернул данные игрока.")
-        console.error("handleAddPlayer: Server Action returned null player.")
-        return
-      }
-      console.log("handleAddPlayer: Player added successfully:", player)
+        // Добавляем/обновляем игрока через Server Action
+        const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
-      // НОВОЕ: Добавляем showAlert для отладки
-      showAlert(`Игрок успешно добавлен! Обновляем комнату...`)
+        showAlert("🔧 Получили ответ от сервера...")
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      // Обновляем состояние комнаты после добавления игрока
-      // Filter Boolean для удаления null/undefined, если player вдруг не вернулся
-      const updatedParticipants = [...playersInRoom.filter((p) => p.isParticipant), player].filter(Boolean) as Player[]
-      const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
-      const newTotalGifts = updatedParticipants.length
-      const newStatus = newTotalGifts === 1 ? "single_player" : newTotalGifts >= 2 ? "countdown" : "waiting"
+        if (error) {
+          showAlert(`❌ Ошибка добавления игрока: ${error}`)
+          console.error("handleAddPlayer: Error adding player via Server Action:", error)
+          return
+        }
+        if (!player) {
+          showAlert("❌ Ошибка: Server Action не вернул данные игрока.")
+          console.error("handleAddPlayer: Server Action returned null player.")
+          return
+        }
+        console.log("handleAddPlayer: Player added successfully:", player)
 
-      if (supabase) {
-        console.log("handleAddPlayer: Updating room state with new totals and status.")
-        await updateRoomState(roomState.id, {
-          total_gifts: newTotalGifts,
-          total_ton: newTotalTon,
-          status: newStatus,
-          countdown: newStatus === "countdown" ? 20 : roomState.countdown, // Сбрасываем таймер при старте
-        })
+        showAlert(`✅ Игрок успешно добавлен! Обновляем комнату...`)
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-        // НОВОЕ: Добавляем showAlert для отладки
-        showAlert(`Комната обновлена! Статус: ${newStatus}, Подарков: ${newTotalGifts}`)
-      } else {
-        console.warn("handleAddPlayer: Supabase client is null, skipping room state update.")
-        showAlert("Предупреждение: Supabase клиент не найден")
+        // Обновляем состояние комнаты после добавления игрока
+        const updatedParticipants = [...playersInRoom.filter((p) => p.isParticipant), player].filter(
+          Boolean,
+        ) as Player[]
+        const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
+        const newTotalGifts = updatedParticipants.length
+        const newStatus = newTotalGifts === 1 ? "single_player" : newTotalGifts >= 2 ? "countdown" : "waiting"
+
+        if (supabase) {
+          console.log("handleAddPlayer: Updating room state with new totals and status.")
+          await updateRoomState(roomState.id, {
+            total_gifts: newTotalGifts,
+            total_ton: newTotalTon,
+            status: newStatus,
+            countdown: newStatus === "countdown" ? 20 : roomState.countdown,
+          })
+
+          showAlert(`✅ Готово! Статус: ${newStatus}, Подарков: ${newTotalGifts}`)
+        } else {
+          console.warn("handleAddPlayer: Supabase client is null, skipping room state update.")
+          showAlert("⚠️ Предупреждение: Supabase клиент не найден")
+        }
+
+        console.log("=== HANDLE ADD PLAYER END ===")
+      } catch (error) {
+        console.error("Exception in handleAddPlayer:", error)
+        showAlert(`💥 Исключение при добавлении игрока: ${error}`)
       }
     },
     [user, roomState, playersInRoom, hapticFeedback, showAlert, supabase],
