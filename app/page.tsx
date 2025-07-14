@@ -249,7 +249,7 @@ export default function TelegramRouletteApp() {
 
   const segments = getWheelSegments()
   const participants = playersInRoom.filter((p) => p.isParticipant)
-  const currentWinner = roomState.winner_telegram_id
+  const currentWinner = roomState?.winner_telegram_id
     ? playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
     : null
 
@@ -286,8 +286,8 @@ export default function TelegramRouletteApp() {
       <main className="flex-grow flex flex-col items-center justify-center">
         <div className="text-center mb-8">
           <p className="text-lg text-muted-foreground">
-            {roomState.total_gifts} {roomState.total_gifts === 1 ? "подарок" : "подарка"} /{" "}
-            <span className="font-bold text-foreground">{(roomState.total_ton ?? 0).toFixed(2)} TON</span>
+            {roomState?.total_gifts ?? 0} {(roomState?.total_gifts ?? 0) === 1 ? "подарок" : "подарка"} /{" "}
+            <span className="font-bold text-foreground">{(roomState?.total_ton ?? 0).toFixed(2)} TON</span>
           </p>
         </div>
 
@@ -336,6 +336,7 @@ export default function TelegramRouletteApp() {
             size="lg"
             className="bg-primary text-primary-foreground font-bold h-14 px-8 text-base"
             onClick={() => handleAddPlayer(true)}
+            disabled={!roomState}
           >
             <Plus className="mr-2 h-5 w-5" /> Добавить гифт
           </Button>
@@ -344,6 +345,7 @@ export default function TelegramRouletteApp() {
             variant="secondary"
             className="font-bold h-14 px-8 text-base"
             onClick={() => handleAddPlayer(false, displayedTonAmount)}
+            disabled={!roomState}
           >
             Добавить {displayedTonAmount} TON
           </Button>
