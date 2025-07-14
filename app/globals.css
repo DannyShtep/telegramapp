@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; /* Более строгий шрифт */
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
@@ -15,73 +15,76 @@ body {
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
+    --background: 220 10% 5%; /* Очень темный фон */
+    --foreground: 0 0% 98%; /* Светлый текст */
+    --card: 220 10% 8%; /* Темная карточка */
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
+    --popover: 220 10% 8%;
     --popover-foreground: 0 0% 98%;
     --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
+    --primary-foreground: 220 10% 5%;
+    --secondary: 220 10% 15%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
+    --muted: 220 10% 15%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 220 10% 15%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --border: 220 10% 20%;
+    --input: 220 10% 20%;
+    --ring: 220 10% 80%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --radius: 0.75rem; /* Чуть больше радиус для "luxury" */
+
+    /* Sidebar colors (if still used, keep them dark) */
+    --sidebar-background: 220 10% 10%;
+    --sidebar-foreground: 220 10% 90%;
+    --sidebar-primary: 220 10% 98%;
+    --sidebar-primary-foreground: 220 10% 10%;
+    --sidebar-accent: 220 10% 20%;
+    --sidebar-accent-foreground: 220 10% 90%;
+    --sidebar-border: 220 10% 25%;
+    --sidebar-ring: 220 10% 70%;
+  }
+  .dark {
+    /* В темной теме эти значения будут такими же, так как мы уже в темной палитре */
+    --background: 220 10% 5%;
+    --foreground: 0 0% 98%;
+    --card: 220 10% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 220 10% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 220 10% 5%;
+    --secondary: 220 10% 15%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 220 10% 15%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 220 10% 15%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 20%;
+    --input: 220 10% 20%;
+    --ring: 220 10% 83.1%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 220 10% 10%;
+    --sidebar-foreground: 220 10% 90%;
+    --sidebar-primary: 220 10% 98%;
+    --sidebar-primary-foreground: 220 10% 10%;
+    --sidebar-accent: 220 10% 20%;
+    --sidebar-accent-foreground: 220 10% 90%;
+    --sidebar-border: 220 10% 25%;
+    --sidebar-ring: 220 10% 70%;
   }
 }
 
@@ -94,35 +97,80 @@ body {
   }
 }
 
-/* Анимация для плавного вращения */
-.duration-3000 {
-  transition-duration: 3000ms;
+/* Анимации для luxury стиля */
+@keyframes animate-spin-elegant {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-/* Улучшенная анимация звезд */
-@keyframes twinkle {
+.animate-spin-elegant {
+  animation: animate-spin-elegant 30s linear infinite; /* Более медленное и плавное вращение */
+}
+
+@keyframes pulse-subtle {
   0%,
   100% {
-    opacity: 0.3;
+    opacity: 0.7;
     transform: scale(1);
   }
   50% {
     opacity: 1;
-    transform: scale(1.2);
+    transform: scale(1.02); /* Очень легкое увеличение */
   }
 }
 
 .animate-pulse {
-  animation: twinkle 3s infinite;
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Эффекты свечения для luxury */
+.glow-gold {
+  filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.4));
+}
+
+.glow-emerald {
+  filter: drop-shadow(0 0 15px rgba(0, 200, 83, 0.4));
+}
+
+.glow-sapphire {
+  filter: drop-shadow(0 0 15px rgba(33, 150, 243, 0.4));
+}
+
+/* Анимация появления для модальных окон */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.modal-enter {
+  animation: scaleIn 0.3s ease-out forwards;
+}
+
+/* Убираем предыдущие анимации, если они не подходят */
+.animate-bounce {
+  animation: none; /* Отключаем bounce */
+}
+.animate-ping {
+  animation: none; /* Отключаем ping, если не нужен */
 }
 
 /* Стили для SVG сегментов */
 svg path {
-  transition: opacity 0.3s ease;
+  transition: fill 0.3s ease, stroke 0.3s ease;
 }
 
 svg path:hover {
-  opacity: 0.8;
+  opacity: 0.9; /* Чуть более заметный ховер */
 }
 
 /* Адаптивные отступы */
