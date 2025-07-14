@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
-import type { TelegramUser } from "../types/telegram" // Импортируем тип TelegramUser
 
 /** Проверяем, инициализирован ли Supabase-клиент.
  *  В режиме preview (Next.js) значений, как правило, нет.
@@ -80,15 +79,17 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
 // Новая функция для обеспечения присутствия пользователя в списке онлайн
 export async function ensureUserOnline(
   roomId: string,
-  telegramUser: TelegramUser,
-  avatarUrl: string, // Изменено с функции на строку
-  displayName: string, // Изменено с функции на строку
+  telegramId: number, // Изменено с TelegramUser на number
+  telegramUsername: string | undefined, // Добавлено
+  avatarUrl: string,
+  displayName: string,
 ) {
   console.log("=== ensureUserOnline START ===")
   console.log("roomId:", roomId)
-  console.log("telegramUser:", telegramUser)
-  console.log("avatarUrl:", avatarUrl) // Добавлено для отладки
-  console.log("displayName:", displayName) // Добавлено для отладки
+  console.log("telegramId:", telegramId)
+  console.log("telegramUsername:", telegramUsername)
+  console.log("avatarUrl:", avatarUrl)
+  console.log("displayName:", displayName)
 
   const supabase = guardSupabase(
     createServerComponentClient(),
@@ -99,13 +100,13 @@ export async function ensureUserOnline(
     return { success: false, error: "Supabase client not configured." }
   }
 
-  console.log("ensureUserOnline: Checking user presence for Telegram ID:", telegramUser.id)
+  console.log("ensureUserOnline: Checking user presence for Telegram ID:", telegramId)
 
   const { data: existingPlayer, error: fetchPlayerError } = await supabase
     .from("players")
     .select("*")
     .eq("room_id", roomId)
-    .eq("telegram_id", telegramUser.id)
+    .eq("telegram_id", telegramId) // Используем telegramId
     .single()
 
   console.log("ensureUserOnline: Existing player query result:", { existingPlayer, fetchPlayerError })
@@ -121,9 +122,9 @@ export async function ensureUserOnline(
     const { error: updateError } = await supabase
       .from("players")
       .update({
-        username: telegramUser.username,
-        display_name: displayName, // Используем переданную строку
-        avatar: avatarUrl, // Используем переданную строку
+        username: telegramUsername, // Используем telegramUsername
+        display_name: displayName,
+        avatar: avatarUrl,
       })
       .eq("id", existingPlayer.id)
 
@@ -136,12 +137,12 @@ export async function ensureUserOnline(
     // Если игрока нет, добавляем его как наблюдателя (isParticipant: false)
     console.log("ensureUserOnline: User not found, inserting as new online player.")
     const newPlayerData = {
-      id: `online_${telegramUser.id}_${Date.now()}`, // Уникальный ID для онлайн-статуса
+      id: `online_${telegramId}_${Date.now()}`, // Уникальный ID для онлайн-статуса
       room_id: roomId,
-      telegram_id: telegramUser.id,
-      username: telegramUser.username,
-      display_name: displayName, // Используем переданную строку
-      avatar: avatarUrl, // Используем переданную строку
+      telegram_id: telegramId, // Используем telegramId
+      username: telegramUsername, // Используем telegramUsername
+      display_name: displayName,
+      avatar: avatarUrl,
       gifts: 0,
       ton_value: 0,
       color: "#4b5563", // Цвет по умолчанию для наблюдателей
