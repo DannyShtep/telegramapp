@@ -15,7 +15,7 @@ export function useTelegram() {
       setWebApp(tg)
 
       // Всегда показываем alert, чтобы подтвердить, что WebApp обнаружен
-      tg.showAlert(`[TG WebApp Detected]`)
+      tg.showAlert(`[TG WebApp Detected]`) // Оставляем этот alert для подтверждения инициализации
 
       // Инициализируем WebApp
       tg.ready()
@@ -33,11 +33,9 @@ export function useTelegram() {
       // Получаем данные пользователя
       if (tg.initDataUnsafe?.user) {
         setUser(tg.initDataUnsafe.user)
-        // Этот alert покажет данные пользователя, если они есть, в нативном приложении
-        tg.showAlert(`[TG User Data from WebApp] ${JSON.stringify(tg.initDataUnsafe.user)}`)
+        // УДАЛЕНО: tg.showAlert(`[TG User Data from WebApp] ${JSON.stringify(tg.initDataUnsafe.user)}`)
       } else {
-        // Этот alert покажет, если WebApp обнаружен, но данные пользователя отсутствуют
-        tg.showAlert("[TG WebApp] User data missing in initDataUnsafe.")
+        // УДАЛЕНО: tg.showAlert("[TG WebApp] User data missing in initDataUnsafe.")
       }
 
       setIsReady(true)
