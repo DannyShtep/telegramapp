@@ -255,14 +255,14 @@ export default function TelegramRouletteApp() {
 
   if (!isReady || !roomState) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
+      <div className="fixed inset-0 flex items-center justify-center bg-transparent">
         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col p-4 pb-40">
+    <div className="min-h-screen bg-transparent text-foreground flex flex-col p-4 pb-40">
       <header className="flex justify-between items-center mb-6">
         <Button variant="secondary" size="sm" className="h-10 px-4">
           <Eye className="w-4 h-4 mr-2" />
@@ -300,7 +300,7 @@ export default function TelegramRouletteApp() {
               transition: roomState.status === "spinning" ? "transform 8s cubic-bezier(0.25, 1, 0.5, 1)" : "none",
             }}
           >
-            <div className="absolute inset-0 rounded-full bg-gray-200">
+            <div className="absolute inset-0 rounded-full bg-gray-700/50">
               {participants.length > 0 ? (
                 <svg className="w-full h-full" viewBox="0 0 200 200">
                   {segments.map((segment, index) => {
@@ -318,7 +318,7 @@ export default function TelegramRouletteApp() {
               ) : null}
             </div>
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center text-center shadow-inner">
+              <div className="w-32 h-32 bg-card/70 backdrop-blur-sm rounded-full flex items-center justify-center text-center shadow-inner">
                 {roomState.status === "countdown" ? (
                   <span className="text-5xl font-bold text-foreground">{roomState.countdown}</span>
                 ) : (
