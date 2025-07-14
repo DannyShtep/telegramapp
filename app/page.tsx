@@ -110,6 +110,7 @@ export default function TelegramRouletteApp() {
           const { players, error } = await getPlayersInRoom(defaultRoomId)
           if (!error && players) {
             setPlayersInRoom(players as Player[])
+            console.log("[Client] Initial players in room:", players) // <-- Добавлено логирование
           } else if (error) {
             console.error("Error fetching players:", error)
           }
@@ -148,6 +149,7 @@ export default function TelegramRouletteApp() {
             return
           }
           setPlayersInRoom(players as Player[])
+          console.log("[Client] Players updated via Realtime:", players) // <-- Добавлено логирование
         },
       )
       .subscribe()
@@ -157,6 +159,11 @@ export default function TelegramRouletteApp() {
       supabase.removeChannel(playerSubscription)
     }
   }, [isReady, user, supabase, getUserPhotoUrl, getUserDisplayName])
+
+  // Дополнительное логирование для отслеживания состояния playersInRoom
+  useEffect(() => {
+    console.log("[Client] Current playersInRoom state:", playersInRoom)
+  }, [playersInRoom])
 
   // ------------------------------------------------------------------
   // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
