@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
-import type { TelegramUser } from "../types/telegram" // Импортируем TelegramWebApp
+import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
 import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
 
@@ -319,15 +319,18 @@ export default function TelegramRouletteApp() {
   // Эффект для блокировки прокрутки фона при открытом модале игроков
   useEffect(() => {
     if (showPlayersModal) {
-      document.body.style.overflow = "hidden"
-      console.log("[Client] Body overflow set to hidden.") // Добавлено логирование
+      document.body.classList.add("no-scroll")
+      document.documentElement.classList.add("no-scroll")
+      console.log("[Client] Added 'no-scroll' class to body and html.")
     } else {
-      document.body.style.overflow = ""
-      console.log("[Client] Body overflow reset.") // Добавлено логирование
+      document.body.classList.remove("no-scroll")
+      document.documentElement.classList.remove("no-scroll")
+      console.log("[Client] Removed 'no-scroll' class from body and html.")
     }
     return () => {
-      document.body.style.overflow = "" // Очистка при размонтировании
-      console.log("[Client] Body overflow reset on unmount.") // Добавлено логирование
+      document.body.classList.remove("no-scroll")
+      document.documentElement.classList.remove("no-scroll")
+      console.log("[Client] Removed 'no-scroll' class from body and html on unmount.")
     }
   }, [showPlayersModal])
 
