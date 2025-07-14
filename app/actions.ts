@@ -40,18 +40,18 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
         .single()
 
       if (createError) {
-        console.error("getOrCreateRoom: Error creating room:", createError)
+        console.error("Error creating room:", createError)
         return { room: null, error: createError.message }
       }
       return { room: newRoom, error: null }
     } else if (fetchError) {
-      console.error("getOrCreateRoom: Error fetching room:", fetchError)
+      console.error("Error fetching room:", fetchError)
       return { room: null, error: fetchError.message }
     }
 
     return { room, error: null }
   } catch (error: any) {
-    console.error("getOrCreateRoom: Caught exception:", error.message)
+    console.error("Caught exception in getOrCreateRoom:", error.message)
     return { room: null, error: error.message }
   }
 }
@@ -76,7 +76,7 @@ export async function ensureUserOnline(
 
     if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
       // PGRST116 означает "строки не найдены"
-      console.error("ensureUserOnline: Error fetching existing player:", fetchPlayerError)
+      console.error("Error fetching existing player in ensureUserOnline:", fetchPlayerError)
       return { success: false, error: fetchPlayerError.message }
     }
 
@@ -92,7 +92,7 @@ export async function ensureUserOnline(
         .eq("id", existingPlayer.id)
 
       if (updateError) {
-        console.error("ensureUserOnline: Error updating existing player:", updateError)
+        console.error("Error updating existing player in ensureUserOnline:", updateError)
         return { success: false, error: updateError.message }
       }
     } else {
@@ -114,7 +114,7 @@ export async function ensureUserOnline(
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
 
       if (insertError) {
-        console.error("ensureUserOnline: Error inserting new online player:", insertError)
+        console.error("Error inserting new online player in ensureUserOnline:", insertError)
         return { success: false, error: insertError.message }
       }
     }
@@ -122,7 +122,7 @@ export async function ensureUserOnline(
     revalidatePath("/")
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("ensureUserOnline: Caught exception:", error.message)
+    console.error("Caught exception in ensureUserOnline:", error.message)
     return { success: false, error: error.message }
   }
 }
@@ -141,7 +141,7 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
       .single()
 
     if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      console.error("addPlayerToRoom: Error fetching existing player:", fetchPlayerError)
+      console.error("Error fetching existing player in addPlayerToRoom:", fetchPlayerError)
       return { player: null, error: fetchPlayerError.message }
     }
 
@@ -187,14 +187,14 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
     }
 
     if (playerResult.error) {
-      console.error("addPlayerToRoom: Error adding/updating player:", playerResult.error)
+      console.error("Error adding/updating player in addPlayerToRoom:", playerResult.error)
       return { player: null, error: playerResult.error.message }
     }
 
     revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
     return { player: playerResult.data, error: null }
   } catch (error: any) {
-    console.error("addPlayerToRoom: Caught exception:", error.message)
+    console.error("Caught exception in addPlayerToRoom:", error.message)
     return { player: null, error: error.message }
   }
 }
@@ -216,14 +216,14 @@ export async function updateRoomState(
     const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
     if (error) {
-      console.error("updateRoomState: Error updating room state:", error)
+      console.error("Error updating room state:", error)
       return { room: null, error: error.message }
     }
 
     revalidatePath("/")
     return { room: data, error: null }
   } catch (error: any) {
-    console.error("updateRoomState: Caught exception:", error.message)
+    console.error("Caught exception in updateRoomState:", error.message)
     return { room: null, error: error.message }
   }
 }
@@ -237,7 +237,7 @@ export async function resetRoom(roomId: string) {
     const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
 
     if (deletePlayersError) {
-      console.error("resetRoom: Error deleting players:", deletePlayersError)
+      console.error("Error deleting players in resetRoom:", deletePlayersError)
       return { success: false, error: deletePlayersError.message }
     }
 
@@ -256,14 +256,14 @@ export async function resetRoom(roomId: string) {
       .single()
 
     if (updateRoomError) {
-      console.error("resetRoom: Error resetting room state:", updateRoomError)
+      console.error("Error resetting room state in resetRoom:", updateRoomError)
       return { success: false, error: updateRoomError.message }
     }
 
     revalidatePath("/")
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("resetRoom: Caught exception:", error.message)
+    console.error("Caught exception in resetRoom:", error.message)
     return { success: false, error: error.message }
   }
 }
@@ -280,12 +280,12 @@ export async function getPlayersInRoom(roomId: string) {
       .order("created_at", { ascending: true })
 
     if (error) {
-      console.error("getPlayersInRoom: Error fetching players in room:", error)
+      console.error("Error fetching players in getPlayersInRoom:", error)
       return { players: [], error: error.message }
     }
     return { players: data, error: null }
   } catch (error: any) {
-    console.error("getPlayersInRoom: Caught exception:", error.message)
+    console.error("Caught exception in getPlayersInRoom:", error.message)
     return { players: [], error: error.message }
   }
 }
