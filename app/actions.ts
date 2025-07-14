@@ -12,7 +12,7 @@ export async function getSupabase() {
 }
 
 /** True while we’re running locally (no env vars → demo mode). */
-export const isDemo = !process.env.NEXT_PUBLIC_SUPABASE_URL
+const isDemo = !process.env.NEXT_PUBLIC_SUPABASE_URL // Убрано 'export'
 
 interface PlayerData {
   id: string // Добавлено для явной передачи ID
