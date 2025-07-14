@@ -3,16 +3,12 @@
 import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
 
-/** Returns Supabase client or `null` if env vars are missing. */
+/** Returns Supabase client. Throws an error if env vars are missing. */
 export async function getSupabase() {
   const client = createServerComponentClient()
-  // Проверяем наличие NEXT_PUBLIC_SUPABASE_URL, так как createServerComponentClient может вернуть клиент,
-  // даже если SUPABASE_SERVICE_ROLE_KEY отсутствует, но мы хотим, чтобы он был полностью настроен.
-  return client && process.env.NEXT_PUBLIC_SUPABASE_URL ? client : null
+  // createServerComponentClient уже выбрасывает ошибку, если переменные окружения не настроены.
+  return client
 }
-
-/** True while we’re running locally (no env vars → demo mode). */
-const isDemo = !process.env.NEXT_PUBLIC_SUPABASE_URL // Убедитесь, что здесь НЕТ 'export'
 
 interface PlayerData {
   id: string // Добавлено для явной передачи ID
@@ -30,34 +26,13 @@ interface PlayerData {
 // Функция для получения или создания комнаты
 export async function getOrCreateRoom(roomId = "default-room-id") {
   try {
-    if (isDemo) {
-      // Return a mock room so the UI still works in preview.
-      console.log("getOrCreateRoom: Running in demo mode, returning mock room.")
-      return {
-        room: {
-          id: roomId,
-          status: "waiting",
-          countdown: 20,
-          winner_telegram_id: null,
-          total_gifts: 0,
-          total_ton: 0,
-        },
-        error: null,
-      }
-    }
-
-    const supabase = await getSupabase() // Ожидаем асинхронную функцию
-    if (!supabase) {
-      console.error("getOrCreateRoom: Supabase client is not available. Check environment variables.")
-      return { room: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
-    }
+    const supabase = await getSupabase()
 
     // Попытка получить комнату
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
 
     if (fetchError && fetchError.code === "PGRST116") {
       // Комната не найдена, создаем новую
-      console.log("getOrCreateRoom: Room not found, attempting to create new room.")
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
         .insert({ id: roomId, status: "waiting", countdown: 20, total_gifts: 0, total_ton: 0 })
@@ -68,14 +43,12 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
         console.error("getOrCreateRoom: Error creating room:", createError)
         return { room: null, error: createError.message }
       }
-      console.log("getOrCreateRoom: New room created successfully:", newRoom)
       return { room: newRoom, error: null }
     } else if (fetchError) {
       console.error("getOrCreateRoom: Error fetching room:", fetchError)
       return { room: null, error: fetchError.message }
     }
 
-    console.log("getOrCreateRoom: Room fetched successfully:", room)
     return { room, error: null }
   } catch (error: any) {
     console.error("getOrCreateRoom: Caught exception:", error.message)
@@ -91,25 +64,8 @@ export async function ensureUserOnline(
   avatarUrl: string,
   displayName: string,
 ) {
-  console.log("=== ensureUserOnline START ===")
-  console.log("Input params:", { roomId, telegramId, telegramUsername, avatarUrl, displayName })
-
   try {
-    if (isDemo) {
-      console.log("ensureUserOnline: Running in demo mode, skipping Supabase operation.")
-      return { success: true, error: null }
-    }
-
     const supabase = await getSupabase()
-    if (!supabase) {
-      console.error("ensureUserOnline: Supabase client is not available. Check environment variables.")
-      return {
-        success: false,
-        error: "Supabase client not configured. Please check your Vercel environment variables.",
-      }
-    }
-
-    console.log("ensureUserOnline: Checking user presence for Telegram ID:", telegramId)
 
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
       .from("players")
@@ -117,8 +73,6 @@ export async function ensureUserOnline(
       .eq("room_id", roomId)
       .eq("telegram_id", telegramId)
       .single()
-
-    console.log("ensureUserOnline: Existing player query result:", { existingPlayer, fetchPlayerError })
 
     if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
       // PGRST116 означает "строки не найдены"
@@ -128,7 +82,6 @@ export async function ensureUserOnline(
 
     if (existingPlayer) {
       // Если игрок уже есть, просто обновляем его данные (на случай смены ника/аватара)
-      console.log("ensureUserOnline: Existing user found, updating details.")
       const { error: updateError } = await supabase
         .from("players")
         .update({
@@ -142,10 +95,8 @@ export async function ensureUserOnline(
         console.error("ensureUserOnline: Error updating existing player:", updateError)
         return { success: false, error: updateError.message }
       }
-      console.log("ensureUserOnline: Existing user updated successfully.")
     } else {
       // Если игрока нет, добавляем его как наблюдателя (isParticipant: false)
-      console.log("ensureUserOnline: User not found, inserting as new online player.")
       const newPlayerData = {
         id: `online_${telegramId}_${Date.now()}`, // Уникальный ID для онлайн-статуса
         room_id: roomId,
@@ -160,19 +111,15 @@ export async function ensureUserOnline(
         is_participant: false, // Важно: это наблюдатель
       }
 
-      console.log("ensureUserOnline: Inserting new player with data:", newPlayerData)
-
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
 
       if (insertError) {
         console.error("ensureUserOnline: Error inserting new online player:", insertError)
         return { success: false, error: insertError.message }
       }
-      console.log("ensureUserOnline: New online user inserted successfully.")
     }
 
     revalidatePath("/")
-    console.log("=== ensureUserOnline END - SUCCESS ===")
     return { success: true, error: null }
   } catch (error: any) {
     console.error("ensureUserOnline: Caught exception:", error.message)
@@ -182,18 +129,8 @@ export async function ensureUserOnline(
 
 // Функция для добавления игрока в комнату или обновления его статуса
 export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
-  console.log("addPlayerToRoom: Attempting to add/update player with data:", playerData)
   try {
-    if (isDemo) {
-      console.log("addPlayerToRoom: Running in demo mode, returning mock player.")
-      return { player: playerData, error: null }
-    }
-
     const supabase = await getSupabase()
-    if (!supabase) {
-      console.error("addPlayerToRoom: Supabase client is not available. Check environment variables.")
-      return { player: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
-    }
 
     // Проверяем, существует ли игрок уже в этой комнате
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
@@ -210,7 +147,6 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
 
     let playerResult
     if (existingPlayer) {
-      console.log("addPlayerToRoom: Existing player found, updating player data.")
       // Обновляем существующего игрока
       const { data, error } = await supabase
         .from("players")
@@ -229,7 +165,6 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
         .single()
       playerResult = { data, error }
     } else {
-      console.log("addPlayerToRoom: No existing player found, inserting new player.")
       // Создаем нового игрока
       const { data, error } = await supabase
         .from("players")
@@ -256,7 +191,6 @@ export async function addPlayerToRoom(roomId: string, playerData: PlayerData) {
       return { player: null, error: playerResult.error.message }
     }
 
-    console.log("addPlayerToRoom: Player operation successful. Revalidating path.")
     revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
     return { player: playerResult.data, error: null }
   } catch (error: any) {
@@ -277,18 +211,8 @@ export async function updateRoomState(
   },
 ) {
   try {
-    if (isDemo) {
-      console.log("updateRoomState: Running in demo mode, returning mock room state.")
-      return { room: { id: roomId, ...newState }, error: null }
-    }
-
     const supabase = await getSupabase()
-    if (!supabase) {
-      console.error("updateRoomState: Supabase client is not available. Check environment variables.")
-      return { room: null, error: "Supabase client not configured. Please check your Vercel environment variables." }
-    }
 
-    console.log("updateRoomState: Attempting to update room state for room:", roomId, "with data:", newState)
     const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
     if (error) {
@@ -296,7 +220,6 @@ export async function updateRoomState(
       return { room: null, error: error.message }
     }
 
-    console.log("updateRoomState: Room state updated successfully. Revalidating path.")
     revalidatePath("/")
     return { room: data, error: null }
   } catch (error: any) {
@@ -308,21 +231,8 @@ export async function updateRoomState(
 // Функция для сброса комнаты
 export async function resetRoom(roomId: string) {
   try {
-    if (isDemo) {
-      console.log("resetRoom: Running in demo mode, skipping Supabase operation.")
-      return { success: true, error: null }
-    }
-
     const supabase = await getSupabase()
-    if (!supabase) {
-      console.error("resetRoom: Supabase client is not available. Check environment variables.")
-      return {
-        success: false,
-        error: "Supabase client not configured. Please check your Vercel environment variables.",
-      }
-    }
 
-    console.log("resetRoom: Attempting to reset room and delete players for room:", roomId)
     // Удаляем всех игроков из комнаты
     const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
 
@@ -350,7 +260,6 @@ export async function resetRoom(roomId: string) {
       return { success: false, error: updateRoomError.message }
     }
 
-    console.log("resetRoom: Room reset successful. Revalidating path.")
     revalidatePath("/")
     return { success: true, error: null }
   } catch (error: any) {
@@ -361,18 +270,8 @@ export async function resetRoom(roomId: string) {
 
 // Функция для получения всех игроков в комнате
 export async function getPlayersInRoom(roomId: string) {
-  console.log("getPlayersInRoom: Attempting to fetch players for room:", roomId)
   try {
-    if (isDemo) {
-      console.log("getPlayersInRoom: Running in demo mode, returning empty players array.")
-      return { players: [], error: null }
-    }
-
     const supabase = await getSupabase()
-    if (!supabase) {
-      console.error("getPlayersInRoom: Supabase client is not available. Check environment variables.")
-      return { players: [], error: "Supabase client not configured. Please check your Vercel environment variables." }
-    }
 
     const { data, error } = await supabase
       .from("players")
@@ -384,7 +283,6 @@ export async function getPlayersInRoom(roomId: string) {
       console.error("getPlayersInRoom: Error fetching players in room:", error)
       return { players: [], error: error.message }
     }
-    console.log("getPlayersInRoom: Players fetched successfully:", data)
     return { players: data, error: null }
   } catch (error: any) {
     console.error("getPlayersInRoom: Caught exception:", error.message)
