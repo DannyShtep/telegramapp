@@ -325,7 +325,7 @@ export default function TelegramRouletteApp() {
 
   if (!supabase) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-darkblue-dark via-charcoal-dark to-darkblue-light text-white">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
         <div className="text-center p-8 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
           <p className="text-gray-300">Supabase не настроен. Добавьте переменные окружения или разверните на Vercel.</p>
@@ -336,7 +336,7 @@ export default function TelegramRouletteApp() {
 
   if (!isReady || !roomState) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-darkblue-dark via-charcoal-dark to-darkblue-light text-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <div className="relative">
             <div className="animate-spin rounded-full h-16 w-16 border-4 border-cyan-400/30 border-t-cyan-400 mx-auto mb-6"></div>
@@ -358,13 +358,13 @@ export default function TelegramRouletteApp() {
     : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-darkblue-dark via-charcoal-dark to-darkblue-light text-white relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 text-white relative overflow-hidden">
       {/* Animated background particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(20)].map((_, i) => (
           <div
             key={i}
-            className="absolute w-1 h-1 bg-white/20 rounded-full animate-pulse"
+            className="absolute w-1 h-1 bg-white/20 rounded-full animate-twinkle"
             style={{
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
@@ -419,7 +419,7 @@ export default function TelegramRouletteApp() {
                       }`}
                     >
                       <div className="relative">
-                        <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-pulse"></div>
+                        <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-twinkle"></div>
                         <div className="absolute inset-0 w-3 h-3 bg-green-400 rounded-full animate-ping opacity-30"></div>
                       </div>
                       <div className="relative">
@@ -479,7 +479,7 @@ export default function TelegramRouletteApp() {
         <div className="bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 backdrop-blur-xl border border-white/20 rounded-2xl px-6 py-3 shadow-xl">
           <div className="flex items-center gap-3 text-emerald-400">
             <div className="relative">
-              <div className="w-3 h-3 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full animate-pulse"></div>
+              <div className="w-3 h-3 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full animate-twinkle"></div>
               <div className="absolute inset-0 w-3 h-3 bg-emerald-400 rounded-full animate-ping opacity-50"></div>
             </div>
             <span className="text-lg font-bold">Общий банк</span>
@@ -533,7 +533,7 @@ export default function TelegramRouletteApp() {
               <div className="absolute inset-4 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full"></div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center border-4 border-white/10 shadow-inner">
                 <div className="text-center">
-                  <div className="w-8 h-8 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full mx-auto mb-2 animate-pulse"></div>
+                  <div className="w-8 h-8 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full mx-auto mb-2 animate-twinkle"></div>
                   <span className="text-gray-400 text-sm font-medium">Ожидание</span>
                 </div>
               </div>
@@ -559,7 +559,7 @@ export default function TelegramRouletteApp() {
               </div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center border-4 border-white/20 shadow-inner">
                 <div className="text-center">
-                  <div className="w-8 h-8 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full mx-auto mb-2 animate-pulse"></div>
+                  <div className="w-8 h-8 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full mx-auto mb-2 animate-twinkle"></div>
                   <span className="text-gray-300 text-sm font-medium">Ожидание</span>
                 </div>
               </div>
@@ -639,7 +639,7 @@ export default function TelegramRouletteApp() {
                       {String(Math.floor(roomState.countdown / 60)).padStart(2, "0")}:
                       {String(roomState.countdown % 60).padStart(2, "0")}
                     </div>
-                    <div className="w-16 h-1 bg-gradient-to-r from-red-500 to-orange-500 rounded-full animate-pulse"></div>
+                    <div className="w-16 h-1 bg-gradient-to-r from-red-500 to-orange-500 rounded-full animate-twinkle"></div>
                   </div>
                 ) : (
                   <div className="text-center">
