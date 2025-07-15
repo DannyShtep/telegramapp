@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { Plus, Eye, RotateCcw, Trophy } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
@@ -36,6 +38,7 @@ export default function TelegramRouletteApp() {
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>([])
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
+  const [showOnlineUsersModal, setShowOnlineUsersModal] = useState(false)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(9)
 
   const playerColors = ["#8B5CF6", "#38bdf8", "#34d399", "#fbbf24", "#f472b6", "#818cf8"]
@@ -262,97 +265,99 @@ export default function TelegramRouletteApp() {
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-foreground flex flex-col p-4 pb-40">
-      <header className="flex justify-between items-center mb-6">
-        <Button variant="secondary" size="sm" className="h-10 px-4">
-          <Eye className="w-4 h-4 mr-2" />
-          Онлайн: {playersInRoom.length}
-        </Button>
-        {user && (
-          <div className="flex items-center gap-2">
-            <img
-              src={getUserPhotoUrl(user) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`}
-              alt="Avatar"
-              className="w-8 h-8 rounded-full"
-            />
-            <span className="text-sm font-semibold">{getUserDisplayName(user)}</span>
-          </div>
-        )}
-        <Button variant="ghost" size="icon" onClick={handleResetRoom}>
-          <RotateCcw className="w-5 h-5" />
-        </Button>
-      </header>
-
-      <main className="flex-grow flex flex-col items-center justify-center">
-        <div className="text-center mb-8">
-          <p className="text-lg text-muted-foreground">
-            {roomState?.total_gifts ?? 0} {(roomState?.total_gifts ?? 0) === 1 ? "подарок" : "подарка"} /{" "}
-            <span className="font-bold text-foreground">{(roomState?.total_ton ?? 0).toFixed(2)} TON</span>
-          </p>
-        </div>
-
-        <div className="relative w-72 h-72 md:w-80 md:h-80">
-          <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-red-500"></div>
-          <div
-            className="w-full h-full rounded-full relative"
-            style={{
-              transform: `rotate(${rotation}deg)`,
-              transition: roomState.status === "spinning" ? "transform 8s cubic-bezier(0.25, 1, 0.5, 1)" : "none",
-            }}
-          >
-            <div className="absolute inset-0 rounded-full bg-gray-700/50">
-              {participants.length > 0 ? (
-                <svg className="w-full h-full" viewBox="0 0 200 200">
-                  {segments.map((segment, index) => {
-                    const startAngleRad = (segment.startAngle * Math.PI) / 180
-                    const endAngleRad = (segment.endAngle * Math.PI) / 180
-                    const largeArcFlag = segment.angle > 180 ? 1 : 0
-                    const x1 = 100 + 100 * Math.cos(startAngleRad)
-                    const y1 = 100 + 100 * Math.sin(startAngleRad)
-                    const x2 = 100 + 100 * Math.cos(endAngleRad)
-                    const y2 = 100 + 100 * Math.sin(endAngleRad)
-                    const pathData = `M 100 100 L ${x1} ${y1} A 100 100 0 ${largeArcFlag} 1 ${x2} ${y2} Z`
-                    return <path key={index} d={pathData} fill={segment.player.color} />
-                  })}
-                </svg>
-              ) : null}
+    <>
+      <div className="min-h-screen bg-transparent text-foreground flex flex-col p-4 pb-40">
+        <header className="flex justify-between items-center mb-6">
+          <Button variant="secondary" size="sm" className="h-10 px-4" onClick={() => setShowOnlineUsersModal(true)}>
+            <Eye className="w-4 h-4 mr-2" />
+            Онлайн: {playersInRoom.length}
+          </Button>
+          {user && (
+            <div className="flex items-center gap-2">
+              <img
+                src={getUserPhotoUrl(user) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`}
+                alt="Avatar"
+                className="w-8 h-8 rounded-full"
+              />
+              <span className="text-sm font-semibold">{getUserDisplayName(user)}</span>
             </div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-32 h-32 bg-card/70 backdrop-blur-sm rounded-full flex items-center justify-center text-center shadow-inner">
-                {roomState.status === "countdown" ? (
-                  <span className="text-5xl font-bold text-foreground">{roomState.countdown}</span>
-                ) : (
-                  <span className="text-xl font-semibold text-muted-foreground">
-                    {roomState.status === "spinning" ? "Крутим!" : "Старт"}
-                  </span>
-                )}
+          )}
+          <Button variant="ghost" size="icon" onClick={handleResetRoom}>
+            <RotateCcw className="w-5 h-5" />
+          </Button>
+        </header>
+
+        <main className="flex-grow flex flex-col items-center justify-center">
+          <div className="text-center mb-8">
+            <p className="text-lg text-muted-foreground">
+              {roomState?.total_gifts ?? 0} {(roomState?.total_gifts ?? 0) === 1 ? "подарок" : "подарка"} /{" "}
+              <span className="font-bold text-foreground">{(roomState?.total_ton ?? 0).toFixed(2)} TON</span>
+            </p>
+          </div>
+
+          <div className="relative w-72 h-72 md:w-80 md:h-80">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-red-500 z-10"></div>
+            <div
+              className="w-full h-full rounded-full relative"
+              style={{
+                transform: `rotate(${rotation}deg)`,
+                transition: roomState.status === "spinning" ? "transform 8s cubic-bezier(0.25, 1, 0.5, 1)" : "none",
+              }}
+            >
+              <div className="absolute inset-0 rounded-full bg-gray-700/50">
+                {participants.length > 0 ? (
+                  <svg className="w-full h-full" viewBox="0 0 200 200">
+                    {segments.map((segment, index) => {
+                      const startAngleRad = (segment.startAngle * Math.PI) / 180
+                      const endAngleRad = (segment.endAngle * Math.PI) / 180
+                      const largeArcFlag = segment.angle > 180 ? 1 : 0
+                      const x1 = 100 + 100 * Math.cos(startAngleRad)
+                      const y1 = 100 + 100 * Math.sin(startAngleRad)
+                      const x2 = 100 + 100 * Math.cos(endAngleRad)
+                      const y2 = 100 + 100 * Math.sin(endAngleRad)
+                      const pathData = `M 100 100 L ${x1} ${y1} A 100 100 0 ${largeArcFlag} 1 ${x2} ${y2} Z`
+                      return <path key={index} d={pathData} fill={segment.player.color} />
+                    })}
+                  </svg>
+                ) : null}
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-32 h-32 bg-card/70 backdrop-blur-sm rounded-full flex items-center justify-center text-center shadow-inner">
+                  {roomState.status === "spinning" ? (
+                    <span className="text-xl font-semibold text-muted-foreground">Крутим!</span>
+                  ) : roomState.status === "finished" ? (
+                    <Trophy className="w-12 h-12 text-yellow-400" />
+                  ) : (
+                    <span className="text-5xl font-bold text-foreground">{roomState.countdown}</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-4 mt-10">
-          <Button
-            size="lg"
-            className="bg-primary text-primary-foreground font-bold h-14 px-8 text-base"
-            onClick={() => handleAddPlayer(true)}
-            disabled={!roomState}
-          >
-            <Plus className="mr-2 h-5 w-5" /> Добавить гифт
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            className="font-bold h-14 px-8 text-base"
-            onClick={() => handleAddPlayer(false, displayedTonAmount)}
-            disabled={!roomState}
-          >
-            Добавить {displayedTonAmount} TON
-          </Button>
-        </div>
-      </main>
+          <div className="flex items-center gap-4 mt-10">
+            <Button
+              size="lg"
+              className="bg-primary text-primary-foreground font-bold h-14 px-8 text-base"
+              onClick={() => handleAddPlayer(true)}
+              disabled={!roomState}
+            >
+              <Plus className="mr-2 h-5 w-5" /> Добавить гифт
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              className="font-bold h-14 px-8 text-base"
+              onClick={() => handleAddPlayer(false, displayedTonAmount)}
+              disabled={!roomState}
+            >
+              Добавить {displayedTonAmount} TON
+            </Button>
+          </div>
+        </main>
+      </div>
 
-      <div className="fixed bottom-0 left-0 right-0 p-2">
+      <div className="fixed bottom-0 left-0 right-0 p-2 z-20">
         <Card className="w-full max-w-xl mx-auto shadow-2xl bg-card text-card-foreground">
           <CardHeader className="p-4">
             <CardTitle>Участники</CardTitle>
@@ -416,6 +421,38 @@ export default function TelegramRouletteApp() {
           </Card>
         </div>
       )}
-    </div>
+
+      {showOnlineUsersModal && (
+        <Dialog open={showOnlineUsersModal} onOpenChange={setShowOnlineUsersModal}>
+          <DialogContent className="bg-card text-card-foreground border-border">
+            <DialogHeader>
+              <DialogTitle>Онлайн ({playersInRoom.length})</DialogTitle>
+              <DialogDescription>Список всех, кто сейчас в комнате.</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-2">
+              {playersInRoom.map((player) => (
+                <div key={player.id} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={player.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${player.telegramId}`}
+                      alt="avatar"
+                      className="w-8 h-8 rounded-full"
+                    />
+                    <span className="text-sm font-medium">{player.displayName}</span>
+                  </div>
+                  {player.isParticipant ? (
+                    <Badge variant="outline" className="border-primary text-primary">
+                      Участник
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">Наблюдатель</Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   )
 }
