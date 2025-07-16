@@ -7,7 +7,15 @@ import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
+import {
+  getOrCreateRoom,
+  addPlayerToRoom,
+  updateRoomState,
+  getPlayersInRoom,
+  ensureUserOnline,
+  determineWinnerAndSpin,
+  resetRoom,
+} from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { Player } from "@/types/player" // Импортируем Player из нового файла
 
@@ -38,6 +46,7 @@ export default function TelegramRouletteApp() {
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все игроки в комнате
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
+  const [winnerDetails, setWinnerDetails] = useState<Player | null>(null) // New state for winner details
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
@@ -176,16 +185,13 @@ export default function TelegramRouletteApp() {
       }
     }
 
-    // Отправляем "пульс" сразу при загрузке
     sendHeartbeat()
-
-    // Настраиваем интервал для периодической отправки "пульса" (каждые 30 секунд)
     const heartbeatInterval = setInterval(sendHeartbeat, 30 * 1000)
 
     return () => {
       clearInterval(heartbeatInterval)
     }
-  }, [isReady, user, supabase, roomState, getUserPhotoUrl, getUserDisplayName]) // Добавляем roomState в зависимости
+  }, [isReady, user, supabase, roomState, getUserPhotoUrl, getUserDisplayName])
 
   // ------------------------------------------------------------------
   // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
@@ -196,7 +202,7 @@ export default function TelegramRouletteApp() {
     const participants = playersInRoom.filter((p) => p.isParticipant)
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
 
-    // пересчитаем проценты; если ничего не поменялось — состояние не трогаем
+    // Recalculate percentages
     const playersNext = playersInRoom.map((p) => {
       const newPerc = p.isParticipant && totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
       return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
@@ -207,31 +213,72 @@ export default function TelegramRouletteApp() {
       setPlayersInRoom(playersNext)
     }
 
-    // ---------- Логика таймера ----------
-    if (roomState.status === "countdown" && roomState.countdown > 0) {
+    // ---------- Timer and Game State Logic ----------
+    if (roomState.status === "countdown") {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
-        if (roomState.countdown <= 0) return
+        // Fetch the latest room state to avoid stale closures
+        const { room: latestRoom, error: fetchRoomError } = await getOrCreateRoom(defaultRoomId)
+        if (fetchRoomError || !latestRoom) {
+          console.error("Error fetching latest room state in countdown interval:", fetchRoomError)
+          return
+        }
 
-        const newCountdown = roomState.countdown - 1
+        if (latestRoom.countdown <= 0) {
+          clearInterval(countdownIntervalRef.current!)
+          countdownIntervalRef.current = null
+          // Trigger winner determination and spin
+          hapticFeedback.impact("heavy")
+          const { winner, error } = await determineWinnerAndSpin(defaultRoomId)
+          if (error) {
+            console.error("Error determining winner:", error)
+            showAlert(`Ошибка: ${error}`)
+            await resetRoom(defaultRoomId) // Reset on error
+            return
+          }
+          if (winner) {
+            setWinnerDetails(winner)
+            // Set rotation for spin animation
+            const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
+            setRotation((prev) => prev + randomRotation)
 
+            // After spin animation, show winner modal and reset
+            setTimeout(async () => {
+              setShowWinnerModal(true)
+              hapticFeedback.notification("success")
+              // Auto-close modal and reset after 4 seconds
+              setTimeout(async () => {
+                setShowWinnerModal(false)
+                await resetRoom(defaultRoomId)
+              }, 4000)
+            }, 15000) // Match CSS transition duration for spin (15s)
+          }
+          return
+        }
+
+        const newCountdown = latestRoom.countdown - 1
         if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
-        if (newCountdown === 0) {
-          // запуск рулетки и остальная логика...
-          const randomRotation = 5400 + Math.random() * 1440
-          setRotation((prev) => prev + randomRotation)
-          hapticFeedback.impact("heavy")
-          await updateRoomState(defaultRoomId, { status: "spinning", countdown: 0 })
-          // дальнейшая логика победителя остаётся без изменений
-        } else {
-          await updateRoomState(defaultRoomId, { countdown: newCountdown })
-        }
+        await updateRoomState(defaultRoomId, { countdown: newCountdown })
       }, 1000)
     } else if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current)
       countdownIntervalRef.current = null
+    }
+
+    // Handle winner modal display based on roomState.status
+    if (roomState.status === "finished" && roomState.winner_telegram_id && !showWinnerModal) {
+      const winner = playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
+      if (winner) {
+        setWinnerDetails(winner)
+        setShowWinnerModal(true)
+        hapticFeedback.notification("success")
+        setTimeout(async () => {
+          setShowWinnerModal(false)
+          await resetRoom(defaultRoomId)
+        }, 4000)
+      }
     }
 
     return () => {
@@ -240,7 +287,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, playersInRoom, hapticFeedback])
+  }, [roomState, playersInRoom, hapticFeedback, supabase, user, showAlert]) // Added user and showAlert to dependencies
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -250,58 +297,85 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        if (roomState.status === "countdown" && roomState.countdown <= 3) {
-          console.error("handleAddPlayer: Cannot add player during final countdown.")
+        if (roomState.status === "spinning" || roomState.status === "finished") {
+          showAlert("Игра уже идет или завершена. Дождитесь нового раунда.")
+          hapticFeedback.notification("error")
           return
         }
-        if (roomState.status === "spinning" || roomState.status === "finished") {
-          console.error("handleAddPlayer: Cannot add player during spinning or finished state.")
+        if (roomState.status === "countdown" && roomState.countdown <= 3) {
+          showAlert("Нельзя присоединиться в последние секунды отсчета.")
+          hapticFeedback.notification("error")
           return
         }
 
         const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
-        if (existingParticipant) {
-          hapticFeedback.notification("error")
-          console.error("handleAddPlayer: User is already a participant.")
-          return
-        }
+        const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
+        const currentGifts = existingParticipant ? existingParticipant.gifts : 0
 
-        const tonValue = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
-        const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
+        const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
+        const newTonValue = currentTonValue + tonValueToAdd
+        const newGifts = currentGifts + 1
+
+        const newPlayer = createPlayerObject(
+          user,
+          true,
+          newTonValue,
+          playersInRoom.filter((p) => p.isParticipant).length,
+        )
+        newPlayer.gifts = newGifts // Ensure gifts count is updated
 
         hapticFeedback.impact("medium")
 
-        // Добавляем/обновляем игрока через Server Action
         const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
         if (error) {
           console.error("handleAddPlayer: Error adding player via Server Action:", error)
+          showAlert(`Ошибка при добавлении игрока: ${error}`)
           return
         }
         if (!player) {
           console.error("handleAddPlayer: Server Action returned null player.")
+          showAlert("Не удалось добавить игрока.")
           return
         }
 
-        // Обновляем состояние комнаты после добавления игрока
-        const updatedParticipants = [...playersInRoom.filter((p) => p.isParticipant), player].filter(
-          Boolean,
-        ) as Player[]
+        // Recalculate total gifts and ton based on the *latest* players list
+        const { players: latestPlayers, error: fetchPlayersError } = await getPlayersInRoom(roomState.id)
+        if (fetchPlayersError) {
+          console.error("Error fetching latest players after add:", fetchPlayersError)
+          return
+        }
+        const updatedParticipants = latestPlayers.filter((p) => p.isParticipant)
         const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
         const newTotalGifts = updatedParticipants.length
-        const newStatus = newTotalGifts === 1 ? "single_player" : newTotalGifts >= 2 ? "countdown" : "waiting"
+
+        let newStatus: RoomState["status"] = "waiting"
+        let newCountdownValue = roomState.countdown
+
+        if (newTotalGifts >= 2) {
+          newStatus = "countdown"
+          if (roomState.status !== "countdown") {
+            // Only reset countdown if transitioning to countdown state
+            newCountdownValue = 20
+          }
+        } else if (newTotalGifts === 1) {
+          newStatus = "single_player"
+        } else {
+          newStatus = "waiting"
+        }
 
         await updateRoomState(roomState.id, {
           total_gifts: newTotalGifts,
           total_ton: newTotalTon,
           status: newStatus,
-          countdown: newStatus === "countdown" ? 20 : roomState.countdown,
+          countdown: newCountdownValue,
         })
       } catch (error: any) {
         console.error("Exception in handleAddPlayer:", error)
+        showAlert(`Произошла ошибка: ${error.message}`)
       }
     },
-    [user, roomState, playersInRoom, hapticFeedback, supabase],
+    [user, roomState, playersInRoom, hapticFeedback, supabase, showAlert],
   )
 
   const getWheelSegments = () => {
@@ -641,7 +715,7 @@ export default function TelegramRouletteApp() {
       </div>
 
       {/* Модал победителя */}
-      {showWinnerModal && currentWinner && (
+      {showWinnerModal && winnerDetails && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <Card className="bg-black border-gray-600 p-6 rounded-2xl max-w-sm w-full text-center relative">
             <Button
@@ -655,15 +729,15 @@ export default function TelegramRouletteApp() {
             <div className="text-4xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-white mb-2">Победитель!</h2>
             <img
-              src={currentWinner.avatar || "/placeholder.svg"}
+              src={winnerDetails.avatar || "/placeholder.svg"}
               alt="Winner"
               className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
             />
             <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
-              {currentWinner.displayName}
+              {winnerDetails.displayName}
             </div>
             <div className="text-sm text-gray-400 mb-4">Выиграл {(roomState.total_ton ?? 0).toFixed(1)} ТОН</div>
-            <div className="text-xs text-gray-500">Шанс победы: {currentWinner.percentage.toFixed(1)}%</div>
+            <div className="text-xs text-gray-500">Шанс победы: {winnerDetails.percentage.toFixed(1)}%</div>
           </Card>
         </div>
       )}
