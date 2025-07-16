@@ -9,7 +9,8 @@ export async function GET() {
   console.log(`[API Route] Attempting to reset room: ${roomId}`)
 
   try {
-    const { success, error } = await resetRoom(roomId)
+    // Передаем skipRevalidation = true, чтобы избежать ошибки в API route
+    const { success, error } = await resetRoom(roomId, true)
 
     if (error) {
       console.error(`[API Route] Failed to reset room ${roomId}:`, error)
