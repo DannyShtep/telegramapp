@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
+import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
 import {
   getOrCreateRoom,
@@ -251,6 +252,27 @@ export default function TelegramRouletteApp() {
     }
   }, [roomState, participantsForGame, hapticFeedback, defaultRoomId]) // Добавил defaultRoomId в зависимости
 
+  // Функция для создания объекта игрока (без генерации ID здесь)
+  const createPlayerObject = (
+    telegramUser: TelegramUser,
+    isParticipant: boolean,
+    tonValue = 0,
+    color: string,
+  ): Player => {
+    return {
+      id: "", // ID будет установлен в handleAddPlayer или получен из БД
+      telegramId: telegramUser.id,
+      username: telegramUser.username || null,
+      displayName: getUserDisplayName(telegramUser),
+      avatar: getUserPhotoUrl(telegramUser) || null,
+      gifts: isParticipant ? 1 : 0,
+      tonValue: tonValue,
+      color: color,
+      percentage: 0,
+      isParticipant: isParticipant,
+    }
+  }
+
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
       console.log(`[Client] handleAddPlayer called - isGift: ${isGift}, tonAmount: ${tonAmountToAdd}`)
@@ -304,18 +326,10 @@ export default function TelegramRouletteApp() {
           }
         } else {
           // Если новый игрок, создаем новый объект с временным ID и назначаем цвет
-          playerToUpdate = {
-            id: `player_${user.id}_${Date.now()}`, // Временный ID для нового игрока
-            telegramId: user.id,
-            username: user.username || null,
-            displayName: getUserDisplayName(user),
-            avatar: getUserPhotoUrl(user) || null,
-            gifts: newGifts,
-            tonValue: newTonValue,
-            color: playerColors[currentParticipants.length % playerColors.length], // Назначаем новый цвет
-            percentage: 0, // Процент будет рассчитан на сервере/Realtime
-            isParticipant: true,
-          }
+          const assignedColor = playerColors[currentParticipants.length % playerColors.length]
+          playerToUpdate = createPlayerObject(user, true, newTonValue, assignedColor)
+          playerToUpdate.id = `temp_${user.id}_${Date.now()}` // Временный ID для новой вставки
+          playerToUpdate.gifts = newGifts // Убедимся, что количество подарков обновлено
         }
 
         console.log("[Client] handleAddPlayer: Player object to add/update:", JSON.stringify(playerToUpdate, null, 2))
@@ -345,8 +359,10 @@ export default function TelegramRouletteApp() {
         // Это вызовет обновление состояния participantsForGame и пересчет процентов
         await refreshPlayersData()
 
-        const newTotalTon = participantsForGame.reduce((sum, p) => sum + p.tonValue, 0) // Используем актуальные данные
-        const newTotalGifts = participantsForGame.length // Используем актуальные данные
+        // Получаем самые актуальные данные после refreshPlayersData
+        const { participants: latestParticipantsAfterAdd } = await getParticipants(roomState.id)
+        const newTotalTon = latestParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
+        const newTotalGifts = latestParticipantsAfterAdd.length
 
         let newStatus: RoomState["status"] = "waiting"
         let newCountdownValue = roomState.countdown
@@ -390,8 +406,9 @@ export default function TelegramRouletteApp() {
       getUserDisplayName,
       getUserPhotoUrl,
       refreshPlayersData,
-      participantsForGame,
-    ], // Добавил refreshPlayersData и participantsForGame в зависимости
+      playerColors,
+      defaultRoomId,
+    ],
   )
 
   const getWheelSegments = () => {
@@ -560,7 +577,7 @@ export default function TelegramRouletteApp() {
           ) : (
             <>
               <svg className="w-full h-full" viewBox="0 0 200 200">
-                {segments.map((segment, index) => {
+                {segments.map((segment) => {
                   const startAngleRad = (segment.startAngle * Math.PI) / 180
                   const endAngleRad = (segment.endAngle * Math.PI) / 180
                   const largeArcFlag = segment.angle > 180 ? 1 : 0
@@ -583,7 +600,9 @@ export default function TelegramRouletteApp() {
                   const avatarY = 100 + 70 * Math.sin(midAngleRad)
 
                   return (
-                    <g key={index}>
+                    <g key={segment.player.id}>
+                      {" "}
+                      {/* Использование player.id в качестве ключа */}
                       <path d={pathData} fill={segment.player.color} />
                       <circle
                         cx={avatarX}
@@ -681,7 +700,7 @@ export default function TelegramRouletteApp() {
             <p className="text-gray-400">Нет участников</p>
           </Card>
         ) : (
-          participants.map((player, index) => (
+          participants.map((player) => (
             <div key={player.id} className="mb-3">
               <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
