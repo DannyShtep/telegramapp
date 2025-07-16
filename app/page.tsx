@@ -336,13 +336,21 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
+      console.log(`[Client] handleAddPlayer STARTED`, {
+        isGift,
+        tonAmountToAdd,
+        user: user?.id,
+        roomState: roomState?.status,
+      })
+
       try {
         if (!user || !roomState || !supabase) {
-          console.error("[Client] handleAddPlayer: User, roomState or Supabase client is null", {
-            user,
-            roomState,
-            supabase,
+          console.error("[Client] handleAddPlayer: Missing dependencies", {
+            hasUser: !!user,
+            hasRoomState: !!roomState,
+            hasSupabase: !!supabase,
           })
+          showAlert("Ошибка: отсутствуют необходимые данные")
           return
         }
 
@@ -360,7 +368,6 @@ export default function TelegramRouletteApp() {
         console.log("[Client] handleAddPlayer called. User:", user?.id, "Room status:", roomState?.status)
 
         // Получаем актуальный список участников для определения текущей ставки пользователя
-        console.log("[Client] handleAddPlayer: Calling getParticipants to fetch current participants.")
         const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
           roomState.id,
         )
@@ -369,11 +376,6 @@ export default function TelegramRouletteApp() {
           showAlert(`Ошибка: ${fetchCurrentParticipantsError}`)
           return
         }
-        console.log(
-          "[Client] handleAddPlayer: Current participants before add:",
-          currentParticipants.length,
-          JSON.stringify(currentParticipants, null, 2),
-        )
 
         const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
         const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
@@ -395,23 +397,25 @@ export default function TelegramRouletteApp() {
 
         hapticFeedback.impact("medium")
 
-        console.log("[Client] handleAddPlayer: Calling addPlayerToRoom Server Action.")
-        const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
+        const { player: playerResult, error: playerError } = await addPlayerToRoom(roomState.id, newPlayer)
 
-        if (error) {
-          console.error("[Client] handleAddPlayer: Error adding player via Server Action:", error)
-          showAlert(`Ошибка при добавлении игрока: ${error}`)
+        if (playerError) {
+          console.error("[Client] handleAddPlayer: Error adding player via Server Action:", playerError)
+          showAlert(`Ошибка при добавлении игрока: ${playerError}`)
           return
         }
-        if (!player) {
+        if (!playerResult) {
           console.error("[Client] handleAddPlayer: Server Action returned null player.")
           showAlert("Не удалось добавить игрока.")
           return
         }
-        console.log("[Client] handleAddPlayer: Player added/updated successfully:", JSON.stringify(player, null, 2))
+
+        console.log(
+          "[Client] handleAddPlayer: Player added/updated successfully:",
+          JSON.stringify(playerResult, null, 2),
+        )
 
         // После добавления/обновления игрока, снова получаем актуальный список участников
-        console.log("[Client] handleAddPlayer: Calling getParticipants to fetch updated participants.")
         const { participants: updatedParticipantsAfterAdd, error: fetchUpdatedParticipantsError } =
           await getParticipants(roomState.id)
         if (fetchUpdatedParticipantsError) {
@@ -421,14 +425,9 @@ export default function TelegramRouletteApp() {
           )
           return
         }
-        console.log(
-          "[Client] handleAddPlayer: Updated participants after add:",
-          updatedParticipantsAfterAdd.length,
-          JSON.stringify(updatedParticipantsAfterAdd, null, 2),
-        )
 
         const newTotalTon = updatedParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
-        const newTotalGifts = updatedParticipantsAfterAdd.length // Это ключевой момент для запуска игры
+        const newTotalGifts = updatedParticipantsAfterAdd.length
 
         let newStatus: RoomState["status"] = "waiting"
         let newCountdownValue = roomState.countdown
@@ -445,34 +444,25 @@ export default function TelegramRouletteApp() {
           newStatus = "waiting"
         }
 
-        console.log("[Client] handleAddPlayer: Calculated newTotalGifts:", newTotalGifts, "newTotalTon:", newTotalTon)
-        console.log(
-          "[Client] handleAddPlayer: Setting room status to:",
-          newStatus,
-          "with countdown:",
-          newCountdownValue,
-        )
-
-        console.log("[Client] handleAddPlayer: Calling updateRoomState Server Action.")
-        const { room: updatedRoom, error: updateRoomError } = await updateRoomState(roomState.id, {
+        const { room: updatedRoomResult, error: updateRoomErrorResult } = await updateRoomState(roomState.id, {
           total_gifts: newTotalGifts,
           total_ton: newTotalTon,
           status: newStatus,
           countdown: newCountdownValue,
         })
 
-        if (updateRoomError) {
-          console.error("[Client] handleAddPlayer: Error updating room state after player add:", updateRoomError)
-          showAlert(`Ошибка при обновлении комнаты: ${updateRoomError}`)
+        if (updateRoomErrorResult) {
+          console.error("[Client] handleAddPlayer: Error updating room state after player add:", updateRoomErrorResult)
+          showAlert(`Ошибка при обновлении комнаты: ${updateRoomErrorResult}`)
         } else {
           console.log(
             "[Client] handleAddPlayer: Room state updated successfully after player add:",
-            JSON.stringify(updatedRoom, null, 2),
+            JSON.stringify(updatedRoomResult, null, 2),
           )
         }
       } catch (error: any) {
-        console.error("[Client] handleAddPlayer: Exception caught:", error.message, error.stack)
-        showAlert(`Произошла ошибка: ${error.message}`)
+        console.error("[Client] handleAddPlayer: Top-level exception caught:", error.message, error.stack)
+        showAlert(`Произошла общая ошибка: ${error.message}`)
       }
     },
     [user, roomState, hapticFeedback, supabase, showAlert],
