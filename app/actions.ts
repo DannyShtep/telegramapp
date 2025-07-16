@@ -2,12 +2,13 @@
 
 import { revalidatePath } from "next/cache"
 import { createServerComponentClient } from "@/lib/supabase"
-import type { Player, SupabasePlayer } from "@/types/player" // Импортируем интерфейсы
+import type { Player, SupabasePlayer } from "@/types/player"
+
+const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
 
 /** Returns Supabase client. Throws an error if env vars are missing. */
 export async function getSupabase() {
   const client = createServerComponentClient()
-  // createServerComponentClient уже выбрасывает ошибку, если переменные окружения не настроены.
   return client
 }
 
@@ -19,7 +20,6 @@ function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player
     id: supabasePlayer.id,
     telegramId: supabasePlayer.telegram_id,
     username: supabasePlayer.username,
-    // Используем display_name, если есть, иначе username, иначе fallback
     displayName:
       supabasePlayer.display_name ||
       (supabasePlayer.username
@@ -42,11 +42,9 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
   try {
     const supabase = await getSupabase()
 
-    // Попытка получить комнату
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
 
     if (fetchError && fetchError.code === "PGRST116") {
-      // PGRST116 означает "строки не найдены"
       console.log(`[Server Action] getOrCreateRoom: Room ${roomId} not found, creating new.`)
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
@@ -73,7 +71,7 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
   }
 }
 
-// Новая функция для обеспечения присутствия пользователя в списке онлайн
+// Функция для обеспечения присутствия пользователя в списке онлайн
 export async function ensureUserOnline(
   roomId: string,
   telegramId: number,
@@ -85,11 +83,6 @@ export async function ensureUserOnline(
   try {
     const supabase = await getSupabase()
 
-    // !!! ВАЖНО: Логируем данные пользователя, которые приходят в Server Action !!!
-    console.log(
-      `[Server Action] ensureUserOnline - Received: telegramId=${telegramId}, username=${telegramUsername}, avatar=${avatarUrl}, displayName=${displayName}`,
-    )
-
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
       .from("players")
       .select("*")
@@ -98,21 +91,19 @@ export async function ensureUserOnline(
       .single()
 
     if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      // PGRST116 означает "строки не найдены"
       console.error("[Server Action] Error fetching existing player in ensureUserOnline:", fetchPlayerError)
       return { success: false, error: fetchPlayerError.message }
     }
 
     if (existingPlayer) {
       console.log(`[Server Action] ensureUserOnline: Player ${telegramId} found, updating last_active_at.`)
-      // Если игрок уже есть, просто обновляем его данные (на случай смены ника/аватара)
       const { error: updateError } = await supabase
         .from("players")
         .update({
           username: telegramUsername,
-          display_name: displayName, // Сохраняем как display_name
+          display_name: displayName,
           avatar: avatarUrl,
-          last_active_at: new Date().toISOString(), // Обновляем время последней активности
+          last_active_at: new Date().toISOString(),
         })
         .eq("id", existingPlayer.id)
 
@@ -123,20 +114,19 @@ export async function ensureUserOnline(
       console.log(`[Server Action] ensureUserOnline: Player ${telegramId} updated successfully.`)
     } else {
       console.log(`[Server Action] ensureUserOnline: Player ${telegramId} not found, inserting new observer.`)
-      // Если игрока нет, добавляем его как наблюдателя (isParticipant: false)
       const newPlayerData = {
-        id: `online_${telegramId}_${Date.now()}`, // Уникальный ID для онлайн-статуса
+        id: `online_${telegramId}_${Date.now()}`,
         room_id: roomId,
         telegram_id: telegramId,
         username: telegramUsername,
-        display_name: displayName, // Сохраняем как display_name
+        display_name: displayName,
         avatar: avatarUrl,
         gifts: 0,
         ton_value: 0,
-        color: "#4b5563", // Цвет по умолчанию для наблюдателей
+        color: "#4b5563",
         percentage: 0,
-        is_participant: false, // Важно: это наблюдатель
-        last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
+        is_participant: false,
+        last_active_at: new Date().toISOString(),
       }
 
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
@@ -158,83 +148,75 @@ export async function ensureUserOnline(
 
 // Функция для добавления игрока в комнату или обновления его статуса
 export async function addPlayerToRoom(roomId: string, playerData: Player) {
-  console.log(`[Server Action] addPlayerToRoom: Starting for telegramId=${playerData.telegramId}, room=${roomId}`)
+  console.log(`[Server Action] addPlayerToRoom: telegramId=${playerData.telegramId}, tonValue=${playerData.tonValue}`)
+
   try {
     const supabase = await getSupabase()
 
-    // Проверяем, существует ли игрок уже в этой комнате
-    const { data: existingPlayer, error: fetchPlayerError } = await supabase
+    // Сначала получаем текущих участников для определения цвета
+    const { data: currentParticipants, error: fetchParticipantsError } = await supabase
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .eq("telegram_id", playerData.telegramId)
+      .eq("is_participant", true)
+      .order("created_at", { ascending: true })
+
+    if (fetchParticipantsError) {
+      console.error("[Server Action] Error fetching current participants:", fetchParticipantsError)
+      return { player: null, error: fetchParticipantsError.message }
+    }
+
+    // Проверяем, есть ли уже этот игрок среди участников
+    const existingParticipant = currentParticipants.find((p) => p.telegram_id === playerData.telegramId)
+
+    let playerColor = playerData.color
+    if (!existingParticipant) {
+      // Если это новый участник, назначаем ему цвет
+      playerColor = playerColors[currentParticipants.length % playerColors.length]
+    } else {
+      // Если игрок уже участвует, сохраняем его цвет
+      playerColor = existingParticipant.color
+    }
+
+    const playerToUpsert = {
+      id: playerData.id,
+      room_id: roomId,
+      telegram_id: playerData.telegramId,
+      username: playerData.username,
+      display_name: playerData.displayName,
+      avatar: playerData.avatar,
+      gifts: playerData.gifts,
+      ton_value: playerData.tonValue,
+      color: playerColor, // Используем правильный цвет
+      percentage: playerData.percentage,
+      is_participant: playerData.isParticipant,
+      last_active_at: new Date().toISOString(),
+    }
+
+    console.log("[Server Action] Upserting player with color:", playerColor)
+
+    // Используем upsert для обновления или вставки
+    const { data: upsertedPlayer, error: upsertError } = await supabase
+      .from("players")
+      .upsert(playerToUpsert, {
+        onConflict: "room_id,telegram_id",
+        ignoreDuplicates: false,
+      })
+      .select()
       .single()
 
-    if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      console.error("[Server Action] Error fetching existing player in addPlayerToRoom:", fetchPlayerError)
-      return { player: null, error: fetchPlayerError.message }
+    if (upsertError) {
+      console.error("[Server Action] Upsert error:", upsertError)
+      return { player: null, error: upsertError.message }
     }
 
-    let playerResult
-    if (existingPlayer) {
-      console.log(`[Server Action] addPlayerToRoom: Player ${playerData.telegramId} found, updating.`)
-      // Обновляем существующего игрока
-      const { data, error } = await supabase
-        .from("players")
-        .update({
-          gifts: playerData.gifts,
-          ton_value: playerData.tonValue,
-          color: playerData.color,
-          percentage: playerData.percentage,
-          is_participant: playerData.isParticipant,
-          display_name: playerData.displayName, // Обновляем на случай изменения ника
-          avatar: playerData.avatar, // Обновляем на случай изменения аватара
-          username: playerData.username,
-          last_active_at: new Date().toISOString(), // Обновляем время последней активности
-        })
-        .eq("id", existingPlayer.id)
-        .select()
-        .single()
-      playerResult = { data, error }
-    } else {
-      console.log(
-        `[Server Action] addPlayerToRoom: Player ${playerData.telegramId} not found, inserting new participant.`,
-      )
-      // Создаем нового игрока
-      const { data, error } = await supabase
-        .from("players")
-        .insert({
-          id: playerData.id, // <-- ЭТО ВАЖНО: передаем ID
-          room_id: roomId,
-          telegram_id: playerData.telegramId,
-          username: playerData.username,
-          display_name: playerData.displayName, // Сохраняем как display_name
-          avatar: playerData.avatar,
-          gifts: playerData.gifts,
-          ton_value: playerData.tonValue,
-          color: playerData.color,
-          percentage: playerData.percentage,
-          is_participant: playerData.isParticipant,
-          last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
-        })
-        .select()
-        .single()
-      playerResult = { data, error }
-    }
+    const clientPlayer = mapSupabasePlayerToClientPlayer(upsertedPlayer as SupabasePlayer)
+    console.log("[Server Action] Player upserted successfully with color:", clientPlayer.color)
 
-    if (playerResult.error) {
-      console.error("[Server Action] Error adding/updating player in addPlayerToRoom:", playerResult.error)
-      return { player: null, error: playerResult.error.message }
-    }
-
-    // Преобразуем результат перед возвратом на клиент
-    const clientPlayer = mapSupabasePlayerToClientPlayer(playerResult.data as SupabasePlayer)
-    console.log(`[Server Action] addPlayerToRoom: Player ${playerData.telegramId} added/updated successfully.`)
-
-    revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
+    revalidatePath("/")
     return { player: clientPlayer, error: null }
   } catch (error: any) {
-    console.error("[Server Action] Caught exception in addPlayerToRoom:", error.message, error.stack)
+    console.error("[Server Action] Exception in addPlayerToRoom:", error.message, error.stack)
     return { player: null, error: error.message }
   }
 }
@@ -270,13 +252,13 @@ export async function updateRoomState(
   }
 }
 
-// Функция для сброса комнаты - убираем revalidatePath, если вызывается из API route
+// Функция для сброса комнаты
 export async function resetRoom(roomId: string, skipRevalidation = false) {
   console.log("[Server Action] resetRoom: Starting reset for room:", roomId)
   try {
     const supabase = await getSupabase()
 
-    // Вместо удаления игроков, сбрасываем их статус участника и ставки
+    // Сбрасываем статус участника и ставки
     const { error: updatePlayersError } = await supabase
       .from("players")
       .update({
@@ -312,7 +294,6 @@ export async function resetRoom(roomId: string, skipRevalidation = false) {
     }
     console.log("[Server Action] resetRoom: Room state reset successfully:", room)
 
-    // Только вызываем revalidatePath если не пропускаем ревалидацию (т.е. не из API route)
     if (!skipRevalidation) {
       revalidatePath("/")
     }
@@ -329,14 +310,13 @@ export async function getPlayersInRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
 
-    // Фильтруем игроков, которые были активны за последние 45 секунд
     const activeThreshold = new Date(Date.now() - 45 * 1000).toISOString()
 
     const { data, error } = await supabase
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .gt("last_active_at", activeThreshold) // Добавляем фильтр по времени активности
+      .gt("last_active_at", activeThreshold)
       .order("created_at", { ascending: true })
 
     if (error) {
@@ -344,7 +324,6 @@ export async function getPlayersInRoom(roomId: string) {
       return { players: [], error: error.message }
     }
 
-    // Преобразуем полученные данные в camelCase формат
     const clientPlayers: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
     console.log(`[Server Action] getPlayersInRoom: Found ${clientPlayers.length} active players.`)
     return { players: clientPlayers, error: null }
@@ -354,7 +333,7 @@ export async function getPlayersInRoom(roomId: string) {
   }
 }
 
-// НОВАЯ ФУНКЦИЯ: Получение участников игры (тех, кто сделал ставку)
+// Получение участников игры (тех, кто сделал ставку)
 export async function getParticipants(roomId: string) {
   console.log(`[Server Action] getParticipants: Fetching participants for room ${roomId}`)
   try {
@@ -364,7 +343,7 @@ export async function getParticipants(roomId: string) {
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .eq("is_participant", true) // Только участники, сделавшие ставку
+      .eq("is_participant", true)
       .order("created_at", { ascending: true })
 
     if (error) {
@@ -380,26 +359,18 @@ export async function getParticipants(roomId: string) {
   }
 }
 
-// Новая функция для определения победителя и обновления статуса комнаты
+// Функция для определения победителя и обновления статуса комнаты
 export async function determineWinnerAndSpin(roomId: string) {
   console.log("[Server Action] determineWinnerAndSpin: Starting for room", roomId)
   try {
     const supabase = await getSupabase()
 
-    // 1. Получаем текущих участников (используем новую функцию)
-    console.log("[Server Action] determineWinnerAndSpin: Calling getParticipants.")
     const { participants: participantsData, error: fetchError } = await getParticipants(roomId)
 
     if (fetchError) {
       console.error("[Server Action] Error fetching participants for winner selection:", fetchError)
       return { winner: null, error: fetchError.message }
     }
-    console.log(
-      "[Server Action] Participants for winner selection:",
-      participantsData.length,
-      "players.",
-      JSON.stringify(participantsData, null, 2),
-    )
 
     const participants = participantsData
 
@@ -409,7 +380,6 @@ export async function determineWinnerAndSpin(roomId: string) {
       return { winner: null, error: "No participants" }
     }
 
-    // 2. Вычисляем общий ТОН и создаем взвешенный список
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
     if (totalTon === 0) {
       console.warn("[Server Action] Total TON is zero, cannot determine winner. Resetting room.")
@@ -430,18 +400,15 @@ export async function determineWinnerAndSpin(roomId: string) {
     }
 
     if (!winner) {
-      // Запасной вариант: если по какой-то причине победитель не был выбран (чего не должно быть при правильной логике), выбираем первого
       winner = participants[0]
       console.warn("[Server Action] Fallback: Winner not selected by random, picking first participant.")
     }
     console.log("[Server Action] Determined winner:", winner?.displayName, "with Telegram ID:", winner?.telegramId)
 
-    // 3. Обновляем состояние комнаты с победителем и статусом
-    console.log("[Server Action] determineWinnerAndSpin: Updating room status to 'spinning' with winner.")
     const { data: updatedRoom, error: updateError } = await supabase
       .from("rooms")
       .update({
-        status: "spinning", // Устанавливаем статус "spinning" немедленно
+        status: "spinning",
         winner_telegram_id: winner.telegramId,
       })
       .eq("id", roomId)
