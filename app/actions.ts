@@ -301,7 +301,7 @@ export async function resetRoom(roomId: string) {
   }
 }
 
-// Функция для получения всех игроков в комнате
+// Функция для получения всех игроков в комнате (для модального окна "Онлайн")
 export async function getPlayersInRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
@@ -331,24 +331,44 @@ export async function getPlayersInRoom(roomId: string) {
   }
 }
 
+// НОВАЯ ФУНКЦИЯ: Получение участников игры (тех, кто сделал ставку)
+export async function getParticipants(roomId: string) {
+  try {
+    const supabase = await getSupabase()
+
+    const { data, error } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("is_participant", true) // Только участники, сделавшие ставку
+      .order("created_at", { ascending: true })
+
+    if (error) {
+      console.error("Error fetching participants:", error)
+      return { participants: [], error: error.message }
+    }
+    const clientParticipants: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+    return { participants: clientParticipants, error: null }
+  } catch (error: any) {
+    console.error("Caught exception in getParticipants:", error.message)
+    return { participants: [], error: error.message }
+  }
+}
+
 // Новая функция для определения победителя и обновления статуса комнаты
 export async function determineWinnerAndSpin(roomId: string) {
   try {
     const supabase = await getSupabase()
 
-    // 1. Получаем текущих участников
-    const { data: participantsData, error: fetchError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("is_participant", true) // Учитываем только активных участников
+    // 1. Получаем текущих участников (используем новую функцию)
+    const { participants: participantsData, error: fetchError } = await getParticipants(roomId)
 
     if (fetchError) {
       console.error("Error fetching participants for winner selection:", fetchError)
       return { winner: null, error: fetchError.message }
     }
 
-    const participants = (participantsData as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+    const participants = participantsData
 
     if (participants.length === 0) {
       console.warn("No participants to determine winner from. Resetting room.")
