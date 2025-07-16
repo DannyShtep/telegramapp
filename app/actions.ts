@@ -259,12 +259,19 @@ export async function resetRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
 
-    // Удаляем всех игроков из комнаты
-    const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
+    // Вместо удаления игроков, сбрасываем их статус участника и ставки
+    const { error: updatePlayersError } = await supabase
+      .from("players")
+      .update({
+        is_participant: false,
+        gifts: 0,
+        ton_value: 0,
+      })
+      .eq("room_id", roomId)
 
-    if (deletePlayersError) {
-      console.error("Error deleting players in resetRoom:", deletePlayersError)
-      return { success: false, error: deletePlayersError.message }
+    if (updatePlayersError) {
+      console.error("Error resetting players in resetRoom:", updatePlayersError)
+      return { success: false, error: updatePlayersError.message }
     }
 
     // Сбрасываем состояние комнаты
