@@ -16,6 +16,7 @@ export interface SupabasePlayer {
   percentage: number
   is_participant: boolean
   created_at: string
+  last_active_at: string // Добавляем это поле
 }
 
 /**
