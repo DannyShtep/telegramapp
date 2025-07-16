@@ -157,6 +157,36 @@ export default function TelegramRouletteApp() {
     console.log("[Client] Current playersInRoom state:", JSON.stringify(playersInRoom, null, 2))
   }, [playersInRoom])
 
+  // Heartbeat для поддержания статуса "онлайн"
+  useEffect(() => {
+    if (!isReady || !user || !supabase || !roomState) return
+
+    const sendHeartbeat = async () => {
+      const userAvatar = getUserPhotoUrl(user)
+      const userDisplayName = getUserDisplayName(user)
+      const { success, error: onlineError } = await ensureUserOnline(
+        roomState.id,
+        user.id,
+        user.username,
+        userAvatar,
+        userDisplayName,
+      )
+      if (onlineError) {
+        console.error("Heartbeat error:", onlineError)
+      }
+    }
+
+    // Отправляем "пульс" сразу при загрузке
+    sendHeartbeat()
+
+    // Настраиваем интервал для периодической отправки "пульса" (каждые 30 секунд)
+    const heartbeatInterval = setInterval(sendHeartbeat, 30 * 1000)
+
+    return () => {
+      clearInterval(heartbeatInterval)
+    }
+  }, [isReady, user, supabase, roomState, getUserPhotoUrl, getUserDisplayName]) // Добавляем roomState в зависимости
+
   // ------------------------------------------------------------------
   // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
   // ------------------------------------------------------------------
