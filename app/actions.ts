@@ -238,18 +238,20 @@ export async function updateRoomState(
 ) {
   try {
     const supabase = await getSupabase()
+    console.log("[Server Action] updateRoomState: Updating room", roomId, "with state:", newState)
 
     const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
     if (error) {
-      console.error("Error updating room state:", error)
+      console.error("[Server Action] Error updating room state:", error)
       return { room: null, error: error.message }
     }
+    console.log("[Server Action] Room state updated successfully:", data)
 
     revalidatePath("/")
     return { room: data, error: null }
   } catch (error: any) {
-    console.error("Caught exception in updateRoomState:", error.message)
+    console.error("[Server Action] Caught exception in updateRoomState:", error.message)
     return { room: null, error: error.message }
   }
 }
@@ -258,6 +260,7 @@ export async function updateRoomState(
 export async function resetRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
+    console.log("[Server Action] Resetting room:", roomId)
 
     // Вместо удаления игроков, сбрасываем их статус участника и ставки
     const { error: updatePlayersError } = await supabase
@@ -270,7 +273,7 @@ export async function resetRoom(roomId: string) {
       .eq("room_id", roomId)
 
     if (updatePlayersError) {
-      console.error("Error resetting players in resetRoom:", updatePlayersError)
+      console.error("[Server Action] Error resetting players in resetRoom:", updatePlayersError)
       return { success: false, error: updatePlayersError.message }
     }
 
@@ -289,14 +292,15 @@ export async function resetRoom(roomId: string) {
       .single()
 
     if (updateRoomError) {
-      console.error("Error resetting room state in resetRoom:", updateRoomError)
+      console.error("[Server Action] Error resetting room state in resetRoom:", updateRoomError)
       return { success: false, error: updateRoomError.message }
     }
+    console.log("[Server Action] Room reset successfully:", room)
 
     revalidatePath("/")
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("Caught exception in resetRoom:", error.message)
+    console.error("[Server Action] Caught exception in resetRoom:", error.message)
     return { success: false, error: error.message }
   }
 }
@@ -359,19 +363,21 @@ export async function getParticipants(roomId: string) {
 export async function determineWinnerAndSpin(roomId: string) {
   try {
     const supabase = await getSupabase()
+    console.log("[Server Action] determineWinnerAndSpin: Starting for room", roomId)
 
     // 1. Получаем текущих участников (используем новую функцию)
     const { participants: participantsData, error: fetchError } = await getParticipants(roomId)
 
     if (fetchError) {
-      console.error("Error fetching participants for winner selection:", fetchError)
+      console.error("[Server Action] Error fetching participants for winner selection:", fetchError)
       return { winner: null, error: fetchError.message }
     }
+    console.log("[Server Action] Participants for winner selection:", participantsData.length, "players.")
 
     const participants = participantsData
 
     if (participants.length === 0) {
-      console.warn("No participants to determine winner from. Resetting room.")
+      console.warn("[Server Action] No participants to determine winner from. Resetting room.")
       await resetRoom(roomId)
       return { winner: null, error: "No participants" }
     }
@@ -379,7 +385,7 @@ export async function determineWinnerAndSpin(roomId: string) {
     // 2. Вычисляем общий ТОН и создаем взвешенный список
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
     if (totalTon === 0) {
-      console.warn("Total TON is zero, cannot determine winner. Resetting room.")
+      console.warn("[Server Action] Total TON is zero, cannot determine winner. Resetting room.")
       await resetRoom(roomId)
       return { winner: null, error: "Total TON is zero" }
     }
@@ -399,8 +405,9 @@ export async function determineWinnerAndSpin(roomId: string) {
     if (!winner) {
       // Запасной вариант: если по какой-то причине победитель не был выбран (чего не должно быть при правильной логике), выбираем первого
       winner = participants[0]
-      console.warn("Fallback: Winner not selected by random, picking first participant.")
+      console.warn("[Server Action] Fallback: Winner not selected by random, picking first participant.")
     }
+    console.log("[Server Action] Determined winner:", winner?.displayName, "with Telegram ID:", winner?.telegramId)
 
     // 3. Обновляем состояние комнаты с победителем и статусом
     const { data: updatedRoom, error: updateError } = await supabase
@@ -414,14 +421,15 @@ export async function determineWinnerAndSpin(roomId: string) {
       .single()
 
     if (updateError) {
-      console.error("Error updating room with winner:", updateError)
+      console.error("[Server Action] Error updating room with winner:", updateError)
       return { winner: null, error: updateError.message }
     }
+    console.log("[Server Action] Room status set to 'spinning' with winner:", updatedRoom)
 
     revalidatePath("/")
     return { winner: mapSupabasePlayerToClientPlayer(winner as SupabasePlayer), error: null }
   } catch (error: any) {
-    console.error("Caught exception in determineWinnerAndSpin:", error.message)
+    console.error("[Server Action] Caught exception in determineWinnerAndSpin:", error.message)
     return { winner: null, error: error.message }
   }
 }
