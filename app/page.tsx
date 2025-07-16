@@ -48,6 +48,7 @@ export default function TelegramRouletteApp() {
   const [showWinnerModal, setShowWinnerModal] = useState(false)
   const [winnerDetails, setWinnerDetails] = useState<Player | null>(null) // New state for winner details
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
+  const [spinTrigger, setSpinTrigger] = useState(0) // New state to trigger spin animation once per "spinning" state
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
 
@@ -228,32 +229,9 @@ export default function TelegramRouletteApp() {
         if (latestRoom.countdown <= 0) {
           clearInterval(countdownIntervalRef.current!)
           countdownIntervalRef.current = null
-          // Trigger winner determination and spin
           hapticFeedback.impact("heavy")
-          const { winner, error } = await determineWinnerAndSpin(defaultRoomId)
-          if (error) {
-            console.error("Error determining winner:", error)
-            showAlert(`Ошибка: ${error}`)
-            await resetRoom(defaultRoomId) // Reset on error
-            return
-          }
-          if (winner) {
-            setWinnerDetails(winner)
-            // Set rotation for spin animation
-            const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
-            setRotation((prev) => prev + randomRotation)
-
-            // After spin animation, show winner modal and reset
-            setTimeout(async () => {
-              setShowWinnerModal(true)
-              hapticFeedback.notification("success")
-              // Auto-close modal and reset after 4 seconds
-              setTimeout(async () => {
-                setShowWinnerModal(false)
-                await resetRoom(defaultRoomId)
-              }, 4000)
-            }, 15000) // Match CSS transition duration for spin (15s)
-          }
+          // Trigger winner determination and spin via server action
+          await determineWinnerAndSpin(defaultRoomId) // This will set room status to "spinning" in DB
           return
         }
 
@@ -267,17 +245,43 @@ export default function TelegramRouletteApp() {
       countdownIntervalRef.current = null
     }
 
-    // Handle winner modal display based on roomState.status
-    if (roomState.status === "finished" && roomState.winner_telegram_id && !showWinnerModal) {
-      const winner = playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
-      if (winner) {
-        setWinnerDetails(winner)
-        setShowWinnerModal(true)
-        hapticFeedback.notification("success")
+    // Handle spin animation and winner modal when status changes to "spinning"
+    if (roomState.status === "spinning") {
+      // Only trigger spin once per "spinning" state
+      if (spinTrigger === 0) {
+        // Use a simple flag or timestamp to ensure it runs once
+        const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
+        setRotation((prev) => prev + randomRotation)
+        setSpinTrigger(1) // Mark as triggered
+
+        // After spin animation, show winner modal and reset
         setTimeout(async () => {
-          setShowWinnerModal(false)
-          await resetRoom(defaultRoomId)
-        }, 4000)
+          const winner = playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
+          if (winner) {
+            setWinnerDetails(winner)
+            setShowWinnerModal(true)
+            hapticFeedback.notification("success")
+            // Auto-close modal and reset after 4 seconds
+            setTimeout(async () => {
+              setShowWinnerModal(false)
+              await resetRoom(defaultRoomId) // Reset the room
+              setSpinTrigger(0) // Reset trigger for next game
+            }, 4000)
+          } else {
+            console.error("Winner not found after spin.")
+            await resetRoom(defaultRoomId) // Reset even if winner not found
+            setSpinTrigger(0)
+          }
+        }, 15000) // Match CSS transition duration for spin (15s)
+      }
+    } else if (
+      roomState.status === "waiting" ||
+      roomState.status === "single_player" ||
+      roomState.status === "finished"
+    ) {
+      // Reset spin trigger when not spinning or after game finished
+      if (spinTrigger !== 0) {
+        setSpinTrigger(0)
       }
     }
 
@@ -287,7 +291,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, playersInRoom, hapticFeedback, supabase, user, showAlert]) // Added user and showAlert to dependencies
+  }, [roomState, playersInRoom, hapticFeedback, supabase, user, showAlert, spinTrigger]) // Added spinTrigger to dependencies
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
