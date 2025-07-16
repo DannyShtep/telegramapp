@@ -1,0 +1,16 @@
+-- Шаг 1: Удалить внешний ключ из таблицы players
+ALTER TABLE players
+DROP CONSTRAINT players_room_id_fkey;
+
+-- Шаг 2: Изменить тип столбца id в таблице rooms на TEXT
+ALTER TABLE rooms
+ALTER COLUMN id TYPE TEXT;
+
+-- Шаг 3: Изменить тип столбца room_id в таблице players на TEXT
+ALTER TABLE players
+ALTER COLUMN room_id TYPE TEXT;
+
+-- Шаг 4: Добавить внешний ключ обратно в таблицу players
+ALTER TABLE players
+ADD CONSTRAINT players_room_id_fkey
+FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE;
