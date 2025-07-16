@@ -1,0 +1,22 @@
+-- Добавляем столбец last_active_at в таблицу players, если его нет.
+-- Он будет автоматически обновляться при каждом изменении строки,
+-- а также иметь значение по умолчанию NOW() при создании новой записи.
+ALTER TABLE players
+ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+-- Создаем или заменяем функцию для обновления last_active_at
+CREATE OR REPLACE FUNCTION update_last_active_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_active_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Создаем или заменяем триггер, который будет вызывать функцию update_last_active_at
+-- перед каждой операцией INSERT или UPDATE на таблице players.
+DROP TRIGGER IF EXISTS set_last_active_at ON players;
+CREATE TRIGGER set_last_active_at
+BEFORE INSERT OR UPDATE ON players
+FOR EACH ROW
+EXECUTE FUNCTION update_last_active_at();
