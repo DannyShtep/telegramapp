@@ -323,3 +323,78 @@ export async function getPlayersInRoom(roomId: string) {
     return { players: [], error: error.message }
   }
 }
+
+// Новая функция для определения победителя и обновления статуса комнаты
+export async function determineWinnerAndSpin(roomId: string) {
+  try {
+    const supabase = await getSupabase()
+
+    // 1. Получаем текущих участников
+    const { data: participantsData, error: fetchError } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("is_participant", true) // Учитываем только активных участников
+
+    if (fetchError) {
+      console.error("Error fetching participants for winner selection:", fetchError)
+      return { winner: null, error: fetchError.message }
+    }
+
+    const participants = (participantsData as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+
+    if (participants.length === 0) {
+      console.warn("No participants to determine winner from. Resetting room.")
+      await resetRoom(roomId)
+      return { winner: null, error: "No participants" }
+    }
+
+    // 2. Вычисляем общий ТОН и создаем взвешенный список
+    const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
+    if (totalTon === 0) {
+      console.warn("Total TON is zero, cannot determine winner. Resetting room.")
+      await resetRoom(roomId)
+      return { winner: null, error: "Total TON is zero" }
+    }
+
+    // Случайным образом выбираем победителя на основе веса ТОН
+    let randomNumber = Math.random() * totalTon
+    let winner: Player | null = null
+
+    for (const p of participants) {
+      randomNumber -= p.tonValue
+      if (randomNumber <= 0) {
+        winner = p
+        break
+      }
+    }
+
+    if (!winner) {
+      // Запасной вариант: если по какой-то причине победитель не был выбран (чего не должно быть при правильной логике), выбираем первого
+      winner = participants[0]
+      console.warn("Fallback: Winner not selected by random, picking first participant.")
+    }
+
+    // 3. Обновляем состояние комнаты с победителем и статусом
+    const { data: updatedRoom, error: updateError } = await supabase
+      .from("rooms")
+      .update({
+        status: "spinning", // Устанавливаем статус "spinning" немедленно
+        winner_telegram_id: winner.telegramId,
+      })
+      .eq("id", roomId)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error("Error updating room with winner:", updateError)
+      return { winner: null, error: updateError.message }
+    }
+
+    revalidatePath("/")
+    return { winner: mapSupabasePlayerToClientPlayer(winner as SupabasePlayer), error: null }
+  } catch (error: any) {
+    console.error("Caught exception in determineWinnerAndSpin:", error.message)
+    return { winner: null, error: error.message }
+  }
+}
