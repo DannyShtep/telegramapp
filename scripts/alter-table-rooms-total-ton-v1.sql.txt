@@ -1,0 +1,11 @@
+-- Изменяем столбец total_ton в таблице rooms:
+-- 1. Разрешаем ему принимать NULL значения (DROP NOT NULL).
+-- 2. Устанавливаем значение по умолчанию 0 для новых записей (SET DEFAULT 0).
+ALTER TABLE rooms
+ALTER COLUMN total_ton DROP NOT NULL,
+ALTER COLUMN total_ton SET DEFAULT 0;
+
+-- Если у вас уже есть существующие строки, где total_ton по какой-то причине стал NULL
+-- (что маловероятно, если NOT NULL был всегда), вы можете выполнить следующую команду,
+-- чтобы обновить их до 0. Однако, судя по ошибке, это не является основной причиной.
+-- UPDATE rooms SET total_ton = 0 WHERE total_ton IS NULL;
