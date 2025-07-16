@@ -263,7 +263,7 @@ export default function TelegramRouletteApp() {
           countdownIntervalRef.current = null
           hapticFeedback.impact("heavy")
           // Trigger winner determination and spin via server action
-          console.log("Countdown reached 0. Calling determineWinnerAndSpin...")
+          console.log("[Client] Countdown reached 0. Calling determineWinnerAndSpin...")
           await determineWinnerAndSpin(defaultRoomId) // This will set room status to "spinning" in DB
           return
         }
@@ -271,43 +271,43 @@ export default function TelegramRouletteApp() {
         const newCountdown = latestRoom.countdown - 1
         if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
-        console.log("Updating room countdown to:", newCountdown)
+        console.log("[Client] Updating room countdown to:", newCountdown)
         await updateRoomState(defaultRoomId, { countdown: newCountdown })
       }, 1000)
     } else if (countdownIntervalRef.current) {
-      console.log("Clearing countdown interval. Room status is not 'countdown'.")
+      console.log("[Client] Clearing countdown interval. Room status is not 'countdown'.")
       clearInterval(countdownIntervalRef.current)
       countdownIntervalRef.current = null
     }
 
     // Handle spin animation and winner modal when status changes to "spinning"
     if (roomState.status === "spinning") {
-      console.log("Room status is 'spinning'. Spin trigger:", spinTrigger)
+      console.log("[Client] Room status is 'spinning'. Spin trigger:", spinTrigger)
       // Only trigger spin once per "spinning" state
       if (spinTrigger === 0) {
         const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
         setRotation((prev) => prev + randomRotation)
         setSpinTrigger(1) // Mark as triggered
-        console.log("Spin animation triggered. New rotation:", rotation + randomRotation)
+        console.log("[Client] Spin animation triggered. New rotation:", rotation + randomRotation)
 
         // After spin animation, show winner modal and reset
         setTimeout(async () => {
-          console.log("Spin animation finished. Checking winner and showing modal.")
+          console.log("[Client] Spin animation finished. Checking winner and showing modal.")
           const winner = updatedParticipantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
           if (winner) {
             setWinnerDetails(winner)
             setShowWinnerModal(true)
             hapticFeedback.notification("success")
-            console.log("Winner modal shown for:", winner.displayName)
+            console.log("[Client] Winner modal shown for:", winner.displayName)
             // Auto-close modal and reset after 4 seconds
             setTimeout(async () => {
-              console.log("Auto-closing winner modal and resetting room.")
+              console.log("[Client] Auto-closing winner modal and resetting room.")
               setShowWinnerModal(false)
               await resetRoom(defaultRoomId) // Reset the room
               setSpinTrigger(0) // Reset trigger for next game
             }, 4000)
           } else {
-            console.error("Winner not found after spin. Resetting room anyway.")
+            console.error("[Client] Winner not found after spin. Resetting room anyway.")
             await resetRoom(defaultRoomId) // Reset even if winner not found
             setSpinTrigger(0)
           }
@@ -320,14 +320,14 @@ export default function TelegramRouletteApp() {
     ) {
       // Reset spin trigger when not spinning or after game finished
       if (spinTrigger !== 0) {
-        console.log("Resetting spin trigger.")
+        console.log("[Client] Resetting spin trigger.")
         setSpinTrigger(0)
       }
     }
 
     return () => {
       if (countdownIntervalRef.current) {
-        console.log("Cleanup: Clearing countdown interval.")
+        console.log("[Client] Cleanup: Clearing countdown interval.")
         clearInterval(countdownIntervalRef.current)
         countdownIntervalRef.current = null
       }
@@ -338,7 +338,11 @@ export default function TelegramRouletteApp() {
     async (isGift = true, tonAmountToAdd?: number) => {
       try {
         if (!user || !roomState || !supabase) {
-          console.error("handleAddPlayer: User, roomState or Supabase client is null", { user, roomState, supabase })
+          console.error("[Client] handleAddPlayer: User, roomState or Supabase client is null", {
+            user,
+            roomState,
+            supabase,
+          })
           return
         }
 
@@ -353,18 +357,23 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        console.log("handleAddPlayer called. User:", user?.id, "Room status:", roomState?.status)
+        console.log("[Client] handleAddPlayer called. User:", user?.id, "Room status:", roomState?.status)
 
         // Получаем актуальный список участников для определения текущей ставки пользователя
+        console.log("[Client] handleAddPlayer: Calling getParticipants to fetch current participants.")
         const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
           roomState.id,
         )
         if (fetchCurrentParticipantsError) {
-          console.error("Error fetching current participants:", fetchCurrentParticipantsError)
+          console.error("[Client] handleAddPlayer: Error fetching current participants:", fetchCurrentParticipantsError)
           showAlert(`Ошибка: ${fetchCurrentParticipantsError}`)
           return
         }
-        console.log("Current participants before add:", currentParticipants.length)
+        console.log(
+          "[Client] handleAddPlayer: Current participants before add:",
+          currentParticipants.length,
+          JSON.stringify(currentParticipants, null, 2),
+        )
 
         const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
         const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
@@ -382,32 +391,41 @@ export default function TelegramRouletteApp() {
         )
         newPlayer.gifts = newGifts // Убедимся, что количество подарков обновлено
 
-        console.log("New player object to add/update:", newPlayer)
+        console.log("[Client] handleAddPlayer: New player object to add/update:", JSON.stringify(newPlayer, null, 2))
 
         hapticFeedback.impact("medium")
 
+        console.log("[Client] handleAddPlayer: Calling addPlayerToRoom Server Action.")
         const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
         if (error) {
-          console.error("handleAddPlayer: Error adding player via Server Action:", error)
+          console.error("[Client] handleAddPlayer: Error adding player via Server Action:", error)
           showAlert(`Ошибка при добавлении игрока: ${error}`)
           return
         }
         if (!player) {
-          console.error("handleAddPlayer: Server Action returned null player.")
+          console.error("[Client] handleAddPlayer: Server Action returned null player.")
           showAlert("Не удалось добавить игрока.")
           return
         }
-        console.log("Player added/updated successfully:", player)
+        console.log("[Client] handleAddPlayer: Player added/updated successfully:", JSON.stringify(player, null, 2))
 
         // После добавления/обновления игрока, снова получаем актуальный список участников
+        console.log("[Client] handleAddPlayer: Calling getParticipants to fetch updated participants.")
         const { participants: updatedParticipantsAfterAdd, error: fetchUpdatedParticipantsError } =
           await getParticipants(roomState.id)
         if (fetchUpdatedParticipantsError) {
-          console.error("Error fetching updated participants after add:", fetchUpdatedParticipantsError)
+          console.error(
+            "[Client] handleAddPlayer: Error fetching updated participants after add:",
+            fetchUpdatedParticipantsError,
+          )
           return
         }
-        console.log("Updated participants after add:", updatedParticipantsAfterAdd.length)
+        console.log(
+          "[Client] handleAddPlayer: Updated participants after add:",
+          updatedParticipantsAfterAdd.length,
+          JSON.stringify(updatedParticipantsAfterAdd, null, 2),
+        )
 
         const newTotalTon = updatedParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
         const newTotalGifts = updatedParticipantsAfterAdd.length // Это ключевой момент для запуска игры
@@ -427,9 +445,15 @@ export default function TelegramRouletteApp() {
           newStatus = "waiting"
         }
 
-        console.log("Calculated newTotalGifts:", newTotalGifts, "newTotalTon:", newTotalTon)
-        console.log("Setting room status to:", newStatus, "with countdown:", newCountdownValue)
+        console.log("[Client] handleAddPlayer: Calculated newTotalGifts:", newTotalGifts, "newTotalTon:", newTotalTon)
+        console.log(
+          "[Client] handleAddPlayer: Setting room status to:",
+          newStatus,
+          "with countdown:",
+          newCountdownValue,
+        )
 
+        console.log("[Client] handleAddPlayer: Calling updateRoomState Server Action.")
         const { room: updatedRoom, error: updateRoomError } = await updateRoomState(roomState.id, {
           total_gifts: newTotalGifts,
           total_ton: newTotalTon,
@@ -438,13 +462,16 @@ export default function TelegramRouletteApp() {
         })
 
         if (updateRoomError) {
-          console.error("Error updating room state after player add:", updateRoomError)
+          console.error("[Client] handleAddPlayer: Error updating room state after player add:", updateRoomError)
           showAlert(`Ошибка при обновлении комнаты: ${updateRoomError}`)
         } else {
-          console.log("Room state updated successfully after player add:", updatedRoom)
+          console.log(
+            "[Client] handleAddPlayer: Room state updated successfully after player add:",
+            JSON.stringify(updatedRoom, null, 2),
+          )
         }
       } catch (error: any) {
-        console.error("Exception in handleAddPlayer:", error)
+        console.error("[Client] handleAddPlayer: Exception caught:", error.message, error.stack)
         showAlert(`Произошла ошибка: ${error.message}`)
       }
     },
