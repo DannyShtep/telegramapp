@@ -46,7 +46,7 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
 
     if (fetchError && fetchError.code === "PGRST116") {
-      // Комната не найдена, создаем новую
+      // PGRST116 означает "строки не найдены"
       console.log(`[Server Action] getOrCreateRoom: Room ${roomId} not found, creating new.`)
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
@@ -270,8 +270,8 @@ export async function updateRoomState(
   }
 }
 
-// Функция для сброса комнаты
-export async function resetRoom(roomId: string) {
+// Функция для сброса комнаты - убираем revalidatePath, если вызывается из API route
+export async function resetRoom(roomId: string, skipRevalidation = false) {
   console.log("[Server Action] resetRoom: Starting reset for room:", roomId)
   try {
     const supabase = await getSupabase()
@@ -312,7 +312,10 @@ export async function resetRoom(roomId: string) {
     }
     console.log("[Server Action] resetRoom: Room state reset successfully:", room)
 
-    revalidatePath("/")
+    // Только вызываем revalidatePath если не пропускаем ревалидацию (т.е. не из API route)
+    if (!skipRevalidation) {
+      revalidatePath("/")
+    }
     return { success: true, error: null }
   } catch (error: any) {
     console.error("[Server Action] Caught exception in resetRoom:", error.message, error.stack)
