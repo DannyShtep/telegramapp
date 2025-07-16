@@ -1,12 +1,19 @@
 -- Добавляем уникальный индекс для комбинации room_id и telegram_id
--- Это позволит использовать upsert для обновления существующих игроков
+-- Это позволит избежать дубликатов игроков в одной комнате
+-- и обеспечит корректную работу upsert-логики в Server Actions.
 
--- Сначала удаляем дубликаты, если они есть
-DELETE FROM players a USING players b 
-WHERE a.id > b.id 
-AND a.room_id = b.room_id 
-AND a.telegram_id = b.telegram_id;
-
--- Добавляем уникальный индекс
-CREATE UNIQUE INDEX IF NOT EXISTS players_room_telegram_unique 
-ON players (room_id, telegram_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'unique_player_in_room'
+    ) THEN
+        ALTER TABLE public.players
+        ADD CONSTRAINT unique_player_in_room UNIQUE (room_id, telegram_id);
+        RAISE NOTICE 'Unique constraint unique_player_in_room added to public.players table.';
+    ELSE
+        RAISE NOTICE 'Unique constraint unique_player_in_room already exists on public.players table. Skipping.';
+    END IF;
+END
+$$;
