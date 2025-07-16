@@ -15,6 +15,7 @@ import {
   ensureUserOnline,
   determineWinnerAndSpin,
   resetRoom,
+  getParticipants, // Импортируем новую функцию
 } from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { Player } from "@/types/player" // Импортируем Player из нового файла
@@ -43,10 +44,11 @@ export default function TelegramRouletteApp() {
   const defaultRoomId = "default-room-id" // Можно сделать динамическим в будущем
 
   const [roomState, setRoomState] = useState<RoomState | null>(null)
-  const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все игроки в комнате
+  const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все онлайн игроки (для модала)
+  const [participantsForGame, setParticipantsForGame] = useState<Player[]>([]) // Игроки, сделавшие ставки (для логики игры)
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
-  const [winnerDetails, setWinnerDetails] = useState<Player | null>(null) // New state for winner details
+  const [winnerDetails, setWinnerDetails] = useState<Player | null>(null)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
   const [spinTrigger, setSpinTrigger] = useState(0) // New state to trigger spin animation once per "spinning" state
 
@@ -80,9 +82,7 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!isReady || !user || !supabase) return // supabase может быть null в локальном превью
 
-    // --- Добавлено логирование объекта user ---
     console.log("[Client] Telegram User object in page.tsx (from useTelegram):", JSON.stringify(user, null, 2))
-    // --- Конец добавленного логирования ---
 
     const initializeRoom = async () => {
       try {
@@ -108,14 +108,24 @@ export default function TelegramRouletteApp() {
 
         if (onlineError) {
           console.error("Error ensuring user online:", onlineError)
-        } else if (success) {
-          const { players, error } = await getPlayersInRoom(defaultRoomId)
-          if (!error && players) {
-            setPlayersInRoom(players) // Теперь players уже в camelCase
-            console.log("[Client] Initial players in room:", JSON.stringify(players, null, 2))
-          } else if (error) {
-            console.error("Error fetching players:", error)
-          }
+        }
+
+        // Fetch initial online players for the modal
+        const { players, error: fetchOnlinePlayersError } = await getPlayersInRoom(defaultRoomId)
+        if (!fetchOnlinePlayersError && players) {
+          setPlayersInRoom(players)
+          console.log("[Client] Initial online players:", JSON.stringify(players, null, 2))
+        } else if (fetchOnlinePlayersError) {
+          console.error("Error fetching online players:", fetchOnlinePlayersError)
+        }
+
+        // Fetch initial participants for game logic
+        const { participants, error: fetchParticipantsError } = await getParticipants(defaultRoomId)
+        if (!fetchParticipantsError && participants) {
+          setParticipantsForGame(participants)
+          console.log("[Client] Initial participants for game:", JSON.stringify(participants, null, 2))
+        } else if (fetchParticipantsError) {
+          console.error("Error fetching participants for game:", fetchParticipantsError)
         }
       } catch (error: any) {
         console.error("Exception in initializeRoom:", error)
@@ -145,13 +155,23 @@ export default function TelegramRouletteApp() {
         "postgres_changes",
         { event: "*", schema: "public", table: "players", filter: `room_id=eq.${defaultRoomId}` },
         async (payload) => {
-          const { players, error } = await getPlayersInRoom(defaultRoomId)
-          if (error) {
-            console.error("Error fetching players after realtime update:", error)
-            return
+          // Update online players for modal
+          const { players, error: fetchOnlinePlayersError } = await getPlayersInRoom(defaultRoomId)
+          if (!fetchOnlinePlayersError && players) {
+            setPlayersInRoom(players)
+            console.log("[Client] Online players updated via Realtime:", JSON.stringify(players, null, 2))
+          } else if (fetchOnlinePlayersError) {
+            console.error("Error fetching online players after realtime update:", fetchOnlinePlayersError)
           }
-          setPlayersInRoom(players) // Теперь players уже в camelCase
-          console.log("[Client] Players updated via Realtime:", JSON.stringify(players, null, 2))
+
+          // Update participants for game logic
+          const { participants, error: fetchParticipantsError } = await getParticipants(defaultRoomId)
+          if (!fetchParticipantsError && participants) {
+            setParticipantsForGame(participants)
+            console.log("[Client] Participants for game updated via Realtime:", JSON.stringify(participants, null, 2))
+          } else if (fetchParticipantsError) {
+            console.error("Error fetching participants for game after realtime update:", fetchParticipantsError)
+          }
         },
       )
       .subscribe()
@@ -162,10 +182,11 @@ export default function TelegramRouletteApp() {
     }
   }, [isReady, user, supabase, getUserPhotoUrl, getUserDisplayName])
 
-  // Дополнительное логирование для отслеживания состояния playersInRoom
+  // Дополнительное логирование для отслеживания состояния playersInRoom и participantsForGame
   useEffect(() => {
     console.log("[Client] Current playersInRoom state:", JSON.stringify(playersInRoom, null, 2))
-  }, [playersInRoom])
+    console.log("[Client] Current participantsForGame state:", JSON.stringify(participantsForGame, null, 2))
+  }, [playersInRoom, participantsForGame])
 
   // Heartbeat для поддержания статуса "онлайн"
   useEffect(() => {
@@ -200,18 +221,19 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!roomState) return
 
-    const participants = playersInRoom.filter((p) => p.isParticipant)
-    const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
+    // Используем participantsForGame для всех расчетов, связанных с игрой
+    const currentParticipants = participantsForGame
+    const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
 
-    // Recalculate percentages
-    const playersNext = playersInRoom.map((p) => {
-      const newPerc = p.isParticipant && totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
+    // Пересчитываем проценты для участников игры
+    const updatedParticipantsForGame = currentParticipants.map((p) => {
+      const newPerc = totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
       return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
     })
 
-    const hasPlayersChanged = playersNext.some((p, i) => p !== playersInRoom[i])
-    if (hasPlayersChanged) {
-      setPlayersInRoom(playersNext)
+    const hasParticipantsChanged = updatedParticipantsForGame.some((p, i) => p !== participantsForGame[i])
+    if (hasParticipantsChanged) {
+      setParticipantsForGame(updatedParticipantsForGame)
     }
 
     // ---------- Timer and Game State Logic ----------
@@ -249,14 +271,13 @@ export default function TelegramRouletteApp() {
     if (roomState.status === "spinning") {
       // Only trigger spin once per "spinning" state
       if (spinTrigger === 0) {
-        // Use a simple flag or timestamp to ensure it runs once
         const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
         setRotation((prev) => prev + randomRotation)
         setSpinTrigger(1) // Mark as triggered
 
         // After spin animation, show winner modal and reset
         setTimeout(async () => {
-          const winner = playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
+          const winner = updatedParticipantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
           if (winner) {
             setWinnerDetails(winner)
             setShowWinnerModal(true)
@@ -291,7 +312,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, playersInRoom, hapticFeedback, supabase, user, showAlert, spinTrigger]) // Added spinTrigger to dependencies
+  }, [roomState, participantsForGame, hapticFeedback, supabase, user, showAlert, spinTrigger])
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -312,7 +333,17 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
+        // Получаем актуальный список участников для определения текущей ставки пользователя
+        const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
+          roomState.id,
+        )
+        if (fetchCurrentParticipantsError) {
+          console.error("Error fetching current participants:", fetchCurrentParticipantsError)
+          showAlert(`Ошибка: ${fetchCurrentParticipantsError}`)
+          return
+        }
+
+        const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
         const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
         const currentGifts = existingParticipant ? existingParticipant.gifts : 0
 
@@ -322,11 +353,11 @@ export default function TelegramRouletteApp() {
 
         const newPlayer = createPlayerObject(
           user,
-          true,
+          true, // Всегда true, когда игрок делает ставку
           newTonValue,
-          playersInRoom.filter((p) => p.isParticipant).length,
+          currentParticipants.length, // Используем количество текущих участников для цвета
         )
-        newPlayer.gifts = newGifts // Ensure gifts count is updated
+        newPlayer.gifts = newGifts // Убедимся, что количество подарков обновлено
 
         hapticFeedback.impact("medium")
 
@@ -343,15 +374,16 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        // Recalculate total gifts and ton based on the *latest* players list
-        const { players: latestPlayers, error: fetchPlayersError } = await getPlayersInRoom(roomState.id)
-        if (fetchPlayersError) {
-          console.error("Error fetching latest players after add:", fetchPlayersError)
+        // После добавления/обновления игрока, снова получаем актуальный список участников
+        const { participants: updatedParticipantsAfterAdd, error: fetchUpdatedParticipantsError } =
+          await getParticipants(roomState.id)
+        if (fetchUpdatedParticipantsError) {
+          console.error("Error fetching updated participants after add:", fetchUpdatedParticipantsError)
           return
         }
-        const updatedParticipants = latestPlayers.filter((p) => p.isParticipant)
-        const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
-        const newTotalGifts = updatedParticipants.length
+
+        const newTotalTon = updatedParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
+        const newTotalGifts = updatedParticipantsAfterAdd.length // Это ключевой момент для запуска игры
 
         let newStatus: RoomState["status"] = "waiting"
         let newCountdownValue = roomState.countdown
@@ -359,7 +391,7 @@ export default function TelegramRouletteApp() {
         if (newTotalGifts >= 2) {
           newStatus = "countdown"
           if (roomState.status !== "countdown") {
-            // Only reset countdown if transitioning to countdown state
+            // Только сбрасываем отсчет, если переходим в состояние отсчета
             newCountdownValue = 20
           }
         } else if (newTotalGifts === 1) {
@@ -379,15 +411,16 @@ export default function TelegramRouletteApp() {
         showAlert(`Произошла ошибка: ${error.message}`)
       }
     },
-    [user, roomState, playersInRoom, hapticFeedback, supabase, showAlert],
+    [user, roomState, hapticFeedback, supabase, showAlert],
   )
 
   const getWheelSegments = () => {
-    const participants = playersInRoom.filter((p) => p.isParticipant)
-    if (participants.length === 0) return []
+    // Используем participantsForGame для сегментов колеса
+    const currentParticipants = participantsForGame
+    if (currentParticipants.length === 0) return []
 
     let currentAngle = 0
-    return participants.map((player) => {
+    return currentParticipants.map((player) => {
       const segmentAngle = (player.percentage / 100) * 360
       const segment = {
         player,
@@ -401,7 +434,7 @@ export default function TelegramRouletteApp() {
   }
 
   const segments = getWheelSegments()
-  const participants = playersInRoom.filter((p) => p.isParticipant)
+  const participants = participantsForGame // Используем participantsForGame для отображения списка игроков
 
   const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
 
@@ -434,14 +467,14 @@ export default function TelegramRouletteApp() {
   }
 
   const currentWinner = roomState.winner_telegram_id
-    ? playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
+    ? participantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
     : null
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden">
       {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
-        {/* Счетчик игроков в комнате */}
+        {/* Счетчик игроков в комнате (онлайн) */}
         <Dialog>
           <DialogTrigger asChild>
             <Button
@@ -468,7 +501,6 @@ export default function TelegramRouletteApp() {
               ) : (
                 <div className="space-y-2">
                   {playersInRoom.map((player) => {
-                    // Добавляем логирование прямо перед рендерингом
                     console.log(
                       `[Client] Rendering player in Online modal: id=${player.id}, displayName='${player.displayName}', username='${player.username}', avatar='${player.avatar}'`,
                     )
@@ -488,14 +520,7 @@ export default function TelegramRouletteApp() {
                           style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                         />
                         <div className="flex-1">
-                          {/* Теперь player.displayName должен быть корректным */}
                           <span className="text-white font-bold text-lg">{player.displayName}</span>
-                          {/* Удаляем отображение tonValue и percentage из этого модального окна */}
-                          {/* {player.isParticipant && (
-                        <div className="text-xs text-gray-400">
-                          {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
-                        </div>
-                      )} */}
                         </div>
                       </div>
                     )
@@ -681,7 +706,7 @@ export default function TelegramRouletteApp() {
         ))}
       </div>
 
-      {/* Список игроков */}
+      {/* Список игроков (участников игры) */}
       <div className="px-4 mb-6 relative z-10">
         {participants.length === 0 ? (
           <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
