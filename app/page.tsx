@@ -143,6 +143,7 @@ export default function TelegramRouletteApp() {
         (payload) => {
           if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
             setRoomState(payload.new as RoomState)
+            console.log("[Client] Room state updated via Realtime:", JSON.stringify(payload.new, null, 2))
           }
         },
       )
@@ -221,6 +222,14 @@ export default function TelegramRouletteApp() {
   useEffect(() => {
     if (!roomState) return
 
+    console.log(
+      "Main useEffect triggered. Room status:",
+      roomState?.status,
+      "Participants count:",
+      participantsForGame.length,
+    )
+    console.log("Spin trigger state:", spinTrigger)
+
     // Используем participantsForGame для всех расчетов, связанных с игрой
     const currentParticipants = participantsForGame
     const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
@@ -241,6 +250,7 @@ export default function TelegramRouletteApp() {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
+        console.log("Countdown interval tick. Current countdown:", roomState.countdown) // Log current roomState.countdown
         // Fetch the latest room state to avoid stale closures
         const { room: latestRoom, error: fetchRoomError } = await getOrCreateRoom(defaultRoomId)
         if (fetchRoomError || !latestRoom) {
@@ -253,6 +263,7 @@ export default function TelegramRouletteApp() {
           countdownIntervalRef.current = null
           hapticFeedback.impact("heavy")
           // Trigger winner determination and spin via server action
+          console.log("Countdown reached 0. Calling determineWinnerAndSpin...")
           await determineWinnerAndSpin(defaultRoomId) // This will set room status to "spinning" in DB
           return
         }
@@ -260,36 +271,43 @@ export default function TelegramRouletteApp() {
         const newCountdown = latestRoom.countdown - 1
         if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
+        console.log("Updating room countdown to:", newCountdown)
         await updateRoomState(defaultRoomId, { countdown: newCountdown })
       }, 1000)
     } else if (countdownIntervalRef.current) {
+      console.log("Clearing countdown interval. Room status is not 'countdown'.")
       clearInterval(countdownIntervalRef.current)
       countdownIntervalRef.current = null
     }
 
     // Handle spin animation and winner modal when status changes to "spinning"
     if (roomState.status === "spinning") {
+      console.log("Room status is 'spinning'. Spin trigger:", spinTrigger)
       // Only trigger spin once per "spinning" state
       if (spinTrigger === 0) {
         const randomRotation = 5400 + Math.random() * 1440 // Spin multiple times
         setRotation((prev) => prev + randomRotation)
         setSpinTrigger(1) // Mark as triggered
+        console.log("Spin animation triggered. New rotation:", rotation + randomRotation)
 
         // After spin animation, show winner modal and reset
         setTimeout(async () => {
+          console.log("Spin animation finished. Checking winner and showing modal.")
           const winner = updatedParticipantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
           if (winner) {
             setWinnerDetails(winner)
             setShowWinnerModal(true)
             hapticFeedback.notification("success")
+            console.log("Winner modal shown for:", winner.displayName)
             // Auto-close modal and reset after 4 seconds
             setTimeout(async () => {
+              console.log("Auto-closing winner modal and resetting room.")
               setShowWinnerModal(false)
               await resetRoom(defaultRoomId) // Reset the room
               setSpinTrigger(0) // Reset trigger for next game
             }, 4000)
           } else {
-            console.error("Winner not found after spin.")
+            console.error("Winner not found after spin. Resetting room anyway.")
             await resetRoom(defaultRoomId) // Reset even if winner not found
             setSpinTrigger(0)
           }
@@ -302,12 +320,14 @@ export default function TelegramRouletteApp() {
     ) {
       // Reset spin trigger when not spinning or after game finished
       if (spinTrigger !== 0) {
+        console.log("Resetting spin trigger.")
         setSpinTrigger(0)
       }
     }
 
     return () => {
       if (countdownIntervalRef.current) {
+        console.log("Cleanup: Clearing countdown interval.")
         clearInterval(countdownIntervalRef.current)
         countdownIntervalRef.current = null
       }
@@ -333,6 +353,8 @@ export default function TelegramRouletteApp() {
           return
         }
 
+        console.log("handleAddPlayer called. User:", user?.id, "Room status:", roomState?.status)
+
         // Получаем актуальный список участников для определения текущей ставки пользователя
         const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
           roomState.id,
@@ -342,6 +364,7 @@ export default function TelegramRouletteApp() {
           showAlert(`Ошибка: ${fetchCurrentParticipantsError}`)
           return
         }
+        console.log("Current participants before add:", currentParticipants.length)
 
         const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
         const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
@@ -359,6 +382,8 @@ export default function TelegramRouletteApp() {
         )
         newPlayer.gifts = newGifts // Убедимся, что количество подарков обновлено
 
+        console.log("New player object to add/update:", newPlayer)
+
         hapticFeedback.impact("medium")
 
         const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
@@ -373,6 +398,7 @@ export default function TelegramRouletteApp() {
           showAlert("Не удалось добавить игрока.")
           return
         }
+        console.log("Player added/updated successfully:", player)
 
         // После добавления/обновления игрока, снова получаем актуальный список участников
         const { participants: updatedParticipantsAfterAdd, error: fetchUpdatedParticipantsError } =
@@ -381,6 +407,7 @@ export default function TelegramRouletteApp() {
           console.error("Error fetching updated participants after add:", fetchUpdatedParticipantsError)
           return
         }
+        console.log("Updated participants after add:", updatedParticipantsAfterAdd.length)
 
         const newTotalTon = updatedParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
         const newTotalGifts = updatedParticipantsAfterAdd.length // Это ключевой момент для запуска игры
@@ -400,12 +427,22 @@ export default function TelegramRouletteApp() {
           newStatus = "waiting"
         }
 
-        await updateRoomState(roomState.id, {
+        console.log("Calculated newTotalGifts:", newTotalGifts, "newTotalTon:", newTotalTon)
+        console.log("Setting room status to:", newStatus, "with countdown:", newCountdownValue)
+
+        const { room: updatedRoom, error: updateRoomError } = await updateRoomState(roomState.id, {
           total_gifts: newTotalGifts,
           total_ton: newTotalTon,
           status: newStatus,
           countdown: newCountdownValue,
         })
+
+        if (updateRoomError) {
+          console.error("Error updating room state after player add:", updateRoomError)
+          showAlert(`Ошибка при обновлении комнаты: ${updateRoomError}`)
+        } else {
+          console.log("Room state updated successfully after player add:", updatedRoom)
+        }
       } catch (error: any) {
         console.error("Exception in handleAddPlayer:", error)
         showAlert(`Произошла ошибка: ${error.message}`)
@@ -770,23 +807,6 @@ export default function TelegramRouletteApp() {
           </Card>
         </div>
       )}
-
-      {/* Нижняя навигация */}
-      <div className="fixed left-0 right-0 bottom-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50">
-        <div className="flex justify-around py-2">
-          {items.map((item, index) => (
-            <Button
-              key={index}
-              variant="ghost"
-              className="flex flex-col items-center gap-1 text-gray-400 hover:text-white py-3"
-              onClick={() => hapticFeedback.selection()}
-            >
-              <span className="text-lg">{item.icon}</span>
-              <span className="text-xs">{item.label}</span>
-            </Button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }
