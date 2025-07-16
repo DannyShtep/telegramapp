@@ -253,6 +253,7 @@ export default function TelegramRouletteApp() {
   }, [roomState, participantsForGame, hapticFeedback, defaultRoomId]) // Добавил defaultRoomId в зависимости
 
   // Функция для создания объекта игрока (без генерации ID здесь)
+  // Используется только как вспомогательная, не для создания playerToUpdate напрямую
   const createPlayerObject = (
     telegramUser: TelegramUser,
     isParticipant: boolean,
@@ -305,38 +306,58 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
+        // Также получаем всех онлайн игроков, чтобы определить, есть ли пользователь уже в комнате как наблюдатель
+        const { players: allOnlinePlayers, error: fetchOnlinePlayersError } = await getPlayersInRoom(roomState.id)
+        if (fetchOnlinePlayersError) {
+          console.error("[Client] handleAddPlayer: Error fetching all online players:", fetchOnlinePlayersError)
+          showAlert(`Ошибка: ${fetchOnlinePlayersError}`)
+          return
+        }
 
-        const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
-        const currentGifts = existingParticipant ? existingParticipant.gifts : 0
+        const existingPlayerInRoom = allOnlinePlayers.find((p) => p.telegramId === user.id)
+
+        const currentTonValue = existingPlayerInRoom ? existingPlayerInRoom.tonValue : 0
+        const currentGifts = existingPlayerInRoom ? existingPlayerInRoom.gifts : 0
 
         const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
         const newTonValue = currentTonValue + tonValueToAdd
         const newGifts = currentGifts + 1
 
-        let playerToUpdate: Player
+        let playerToSave: Player
 
-        if (existingParticipant) {
-          // Если игрок уже существует, обновляем его данные, сохраняя ID и цвет из БД
-          playerToUpdate = {
-            ...existingParticipant, // Сохраняем существующий ID, цвет и другие неизменяемые поля
+        if (existingPlayerInRoom) {
+          // Если игрок уже существует (как участник или наблюдатель), обновляем его данные
+          playerToSave = {
+            ...existingPlayerInRoom, // Сохраняем существующий ID, цвет и другие неизменяемые поля
             gifts: newGifts,
             tonValue: newTonValue,
-            isParticipant: true, // Убеждаемся, что он участник
+            isParticipant: true, // Теперь он участник
           }
         } else {
-          // Если новый игрок, создаем новый объект с временным ID и назначаем цвет
+          // Если это совершенно новый игрок в комнате, создаем новый объект
           const assignedColor = playerColors[currentParticipants.length % playerColors.length]
-          playerToUpdate = createPlayerObject(user, true, newTonValue, assignedColor)
-          playerToUpdate.id = `temp_${user.id}_${Date.now()}` // Временный ID для новой вставки
-          playerToUpdate.gifts = newGifts // Убедимся, что количество подарков обновлено
+          playerToSave = {
+            id: `temp_${user.id}_${Date.now()}`, // Временный ID для новой вставки
+            telegramId: user.id,
+            username: user.username || null,
+            displayName: getUserDisplayName(user),
+            avatar: getUserPhotoUrl(user) || null,
+            gifts: newGifts,
+            tonValue: newTonValue,
+            color: assignedColor,
+            percentage: 0, // Процент будет рассчитан на сервере/Realtime
+            isParticipant: true,
+          }
         }
 
-        console.log("[Client] handleAddPlayer: Player object to add/update:", JSON.stringify(playerToUpdate, null, 2))
+        console.log(
+          "[Client] handleAddPlayer: Player object to send to Server Action:",
+          JSON.stringify(playerToSave, null, 2),
+        )
 
         hapticFeedback.impact("medium")
 
-        const { player: playerResult, error: playerError } = await addPlayerToRoom(roomState.id, playerToUpdate)
+        const { player: playerResult, error: playerError } = await addPlayerToRoom(roomState.id, playerToSave)
 
         if (playerError) {
           console.error("[Client] handleAddPlayer: Error adding player via Server Action:", playerError)
@@ -359,25 +380,31 @@ export default function TelegramRouletteApp() {
         // Это вызовет обновление состояния participantsForGame и пересчет процентов
         await refreshPlayersData()
 
-        // Получаем самые актуальные данные после refreshPlayersData
+        // Получаем самые актуальные данные после refreshPlayersData для обновления комнаты
         const { participants: latestParticipantsAfterAdd } = await getParticipants(roomState.id)
         const newTotalTon = latestParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
-        const newTotalGifts = latestParticipantsAfterAdd.length
+        const newParticipantsCount = latestParticipantsAfterAdd.length // Количество уникальных участников
+        const newTotalGiftsSum = latestParticipantsAfterAdd.reduce((sum, p) => sum + p.gifts, 0) // Сумма всех подарков
 
         let newStatus: RoomState["status"] = "waiting"
         let newCountdownValue = roomState.countdown
 
-        if (newTotalGifts >= 2) {
+        if (newParticipantsCount >= 2) {
+          // Игра начинается с 2 или более участников
           newStatus = "countdown"
           if (roomState.status !== "countdown") {
-            newCountdownValue = 20
+            newCountdownValue = 20 // Сброс отсчета только при переходе в состояние отсчета
           }
-        } else if (newTotalGifts === 1) {
+        } else if (newParticipantsCount === 1) {
+          // Один игрок, ожидаем больше
           newStatus = "single_player"
+        } else {
+          // Нет участников
+          newStatus = "waiting"
         }
 
         const { room: updatedRoomResult, error: updateRoomErrorResult } = await updateRoomState(roomState.id, {
-          total_gifts: newTotalGifts,
+          total_gifts: newTotalGiftsSum, // Используем сумму подарков
           total_ton: newTotalTon,
           status: newStatus,
           countdown: newCountdownValue,
@@ -504,9 +531,7 @@ export default function TelegramRouletteApp() {
                       />
                       <div className="flex-1">
                         <span className="text-white font-bold text-lg">{player.displayName}</span>
-                        {player.isParticipant && (
-                          <div className="text-xs text-gray-400">Ставка: {player.tonValue.toFixed(1)} ТОН</div>
-                        )}
+                        {/* Удалена информация о ставках и процентах из модала "Онлайн" */}
                       </div>
                     </div>
                   ))}
