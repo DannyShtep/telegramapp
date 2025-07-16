@@ -106,6 +106,7 @@ export async function ensureUserOnline(
           username: telegramUsername,
           display_name: displayName, // Сохраняем как display_name
           avatar: avatarUrl,
+          last_active_at: new Date().toISOString(), // Обновляем время последней активности
         })
         .eq("id", existingPlayer.id)
 
@@ -127,6 +128,7 @@ export async function ensureUserOnline(
         color: "#4b5563", // Цвет по умолчанию для наблюдателей
         percentage: 0,
         is_participant: false, // Важно: это наблюдатель
+        last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
       }
 
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
@@ -178,6 +180,7 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
           display_name: playerData.displayName, // Обновляем на случай изменения ника
           avatar: playerData.avatar, // Обновляем на случай изменения аватара
           username: playerData.username,
+          last_active_at: new Date().toISOString(), // Обновляем время последней активности
         })
         .eq("id", existingPlayer.id)
         .select()
@@ -199,6 +202,7 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
           color: playerData.color,
           percentage: playerData.percentage,
           is_participant: playerData.isParticipant,
+          last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
         })
         .select()
         .single()
@@ -295,10 +299,14 @@ export async function getPlayersInRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
 
+    // Фильтруем игроков, которые были активны за последние 45 секунд
+    const activeThreshold = new Date(Date.now() - 45 * 1000).toISOString()
+
     const { data, error } = await supabase
       .from("players")
       .select("*")
       .eq("room_id", roomId)
+      .gt("last_active_at", activeThreshold) // Добавляем фильтр по времени активности
       .order("created_at", { ascending: true })
 
     if (error) {
