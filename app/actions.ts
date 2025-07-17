@@ -1,8 +1,8 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
+// import { revalidatePath } from "next/cache" // Удаляем импорт revalidatePath
 import { createServerComponentClient } from "@/lib/supabase"
-import type { Player, SupabasePlayer } from "@/types/player" // Импортируем интерфейсы
+import type { Player, SupabasePlayer, Room } from "@/types/player" // Импортируем интерфейсы
 
 /** Returns Supabase client. Throws an error if env vars are missing. */
 export async function getSupabase() {
@@ -33,6 +33,7 @@ function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player
     color: supabasePlayer.color,
     percentage: supabasePlayer.percentage,
     isParticipant: supabasePlayer.is_participant,
+    lastActiveAt: supabasePlayer.last_active_at, // Добавляем lastActiveAt
   }
 }
 
@@ -59,14 +60,14 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
         return { room: null, error: createError.message }
       }
       console.log(`[Server Action] getOrCreateRoom: Room ${roomId} created successfully.`)
-      return { room: newRoom, error: null }
+      return { room: newRoom as Room, error: null } // Приводим к типу Room
     } else if (fetchError) {
       console.error("[Server Action] Error fetching room:", fetchError)
       return { room: null, error: fetchError.message }
     }
 
     console.log(`[Server Action] getOrCreateRoom: Room ${roomId} fetched successfully. Status: ${room?.status}`)
-    return { room, error: null }
+    return { room: room as Room, error: null } // Приводим к типу Room
   } catch (error: any) {
     console.error("[Server Action] Caught exception in getOrCreateRoom:", error.message, error.stack)
     return { room: null, error: error.message }
@@ -148,7 +149,7 @@ export async function ensureUserOnline(
       console.log(`[Server Action] ensureUserOnline: New observer ${telegramId} inserted successfully.`)
     }
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удалено
     return { success: true, error: null }
   } catch (error: any) {
     console.error("[Server Action] Caught exception in ensureUserOnline:", error.message, error.stack)
@@ -215,7 +216,7 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
 
       const clientPlayer = mapSupabasePlayerToClientPlayer(insertedPlayer as SupabasePlayer)
       console.log("[Server Action] addPlayerToRoom: New player inserted successfully")
-      revalidatePath("/")
+      // revalidatePath("/") // Удалено
       return { player: clientPlayer, error: null }
     } else if (updateError) {
       console.error("[Server Action] addPlayerToRoom: Update error:", updateError)
@@ -225,7 +226,7 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
     const clientPlayer = mapSupabasePlayerToClientPlayer(updatedPlayer as SupabasePlayer)
     console.log("[Server Action] addPlayerToRoom: Player updated successfully")
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удалено
     return { player: clientPlayer, error: null }
   } catch (error: any) {
     console.error("[Server Action] addPlayerToRoom: Exception:", error.message, error.stack)
@@ -256,8 +257,8 @@ export async function updateRoomState(
     }
     console.log("[Server Action] Room state updated successfully:", data)
 
-    revalidatePath("/")
-    return { room: data, error: null }
+    // revalidatePath("/") // Удалено
+    return { room: data as Room, error: null } // Приводим к типу Room
   } catch (error: any) {
     console.error("[Server Action] Caught exception in updateRoomState:", error.message, error.stack)
     return { room: null, error: error.message }
@@ -266,7 +267,7 @@ export async function updateRoomState(
 
 // Функция для сброса комнаты - убираем revalidatePath, если вызывается из API route
 export async function resetRoom(roomId: string, skipRevalidation = false) {
-  console.log("[Server Action] resetRoom: Starting reset for room:", roomId)
+  console.log("[Server Action] resetRoom: Starting reset for room:", roomId, "Skip revalidation:", skipRevalidation)
   try {
     const supabase = await getSupabase()
 
@@ -307,9 +308,9 @@ export async function resetRoom(roomId: string, skipRevalidation = false) {
     console.log("[Server Action] resetRoom: Room state reset successfully:", room)
 
     // Только вызываем revalidatePath если не пропускаем ревалидацию (т.е. не из API route)
-    if (!skipRevalidation) {
-      revalidatePath("/")
-    }
+    // if (!skipRevalidation) { // Эта проверка теперь не нужна, так как revalidatePath удален
+    //   revalidatePath("/")
+    // }
     return { success: true, error: null }
   } catch (error: any) {
     console.error("[Server Action] Caught exception in resetRoom:", error.message, error.stack)
@@ -399,7 +400,7 @@ export async function determineWinnerAndSpin(roomId: string) {
 
     if (participants.length === 0) {
       console.warn("[Server Action] No participants to determine winner from. Resetting room.")
-      await resetRoom(roomId)
+      await resetRoom(roomId, true) // Пропускаем revalidatePath
       return { winner: null, error: "No participants" }
     }
 
@@ -407,7 +408,7 @@ export async function determineWinnerAndSpin(roomId: string) {
     const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
     if (totalTon === 0) {
       console.warn("[Server Action] Total TON is zero, cannot determine winner. Resetting room.")
-      await resetRoom(roomId)
+      await resetRoom(roomId, true) // Пропускаем revalidatePath
       return { winner: null, error: "Total TON is zero" }
     }
 
@@ -448,7 +449,7 @@ export async function determineWinnerAndSpin(roomId: string) {
     }
     console.log("[Server Action] Room status set to 'spinning' with winner:", updatedRoom)
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удалено
     return { winner: mapSupabasePlayerToClientPlayer(winner as SupabasePlayer), error: null }
   } catch (error: any) {
     console.error("[Server Action] Caught exception in determineWinnerAndSpin:", error.message, error.stack)
