@@ -192,7 +192,7 @@ export default function TelegramRouletteApp() {
       supabase.removeChannel(roomSubscription)
       supabase.removeChannel(playerSubscription)
     }
-  }, [isReady, user, supabase, getUserPhotoUrl, getUserDisplayName, handleError])
+  }, [isReady, user, supabase])
 
   // Heartbeat для поддержания статуса "онлайн"
   useEffect(() => {
@@ -212,7 +212,7 @@ export default function TelegramRouletteApp() {
     const heartbeatInterval = setInterval(sendHeartbeat, 30 * 1000)
 
     return () => clearInterval(heartbeatInterval)
-  }, [isReady, user, supabase, roomState, getUserPhotoUrl, getUserDisplayName])
+  }, [isReady, user, supabase, roomState])
 
   // Логика игры и таймера
   useEffect(() => {
@@ -310,7 +310,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, participantsForGame, hapticFeedback, spinTrigger, handleError])
+  }, [roomState, participantsForGame, spinTrigger])
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -371,17 +371,7 @@ export default function TelegramRouletteApp() {
         setIsLoading(false)
       }
     },
-    [
-      user,
-      roomState,
-      supabase,
-      isLoading,
-      hapticFeedback,
-      showAlert,
-      createPlayerObject,
-      handleError,
-      participantsForGame,
-    ],
+    [user, roomState, supabase, isLoading, hapticFeedback, showAlert, createPlayerObject, participantsForGame],
   )
 
   const getWheelSegments = useCallback(() => {
