@@ -1,4 +1,3 @@
-"use client"
 import { Card } from "@/components/ui/card"
 import { AlertCircle } from "lucide-react"
 import { getOrCreateRoom, getPlayersInRoom, getParticipants } from "@/app/actions"
