@@ -1,6 +1,3 @@
- />
-
-```typescript
 "use server"
 
 import { createServerComponentClient } from "@/lib/supabase"
@@ -46,7 +43,14 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
     if (fetchError && fetchError.code === "PGRST116") {
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
-        .insert({ id: roomId, status: "waiting", countdown: 20, total_gifts: 0, total_ton: 0, countdown_end_time: null }) // Добавляем countdown_end_time
+        .insert({
+          id: roomId,
+          status: "waiting",
+          countdown: 20,
+          total_gifts: 0,
+          total_ton: 0,
+          countdown_end_time: null,
+        }) // Добавляем countdown_end_time
         .select()
         .single()
 
@@ -140,18 +144,19 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
   try {
     const supabase = await getSupabase()
 
-    const { data, error } = await supabase.rpc("add_player_and_update_room", {
-      p_room_id: roomId,
-      p_telegram_id: playerData.telegramId,
-      p_username: playerData.username,
-      p_display_name: playerData.displayName,
-      p_avatar: playerData.avatar,
-      p_gifts_to_add: playerData.gifts, // Передаем gifts_to_add
-      p_ton_value_to_add: playerData.tonValue, // Передаем ton_value_to_add
-      p_color: playerData.color,
-      p_is_participant: playerData.isParticipant,
-    })
-    .single() // Ожидаем одну строку (обновленную комнату)
+    const { data, error } = await supabase
+      .rpc("add_player_and_update_room", {
+        p_room_id: roomId,
+        p_telegram_id: playerData.telegramId,
+        p_username: playerData.username,
+        p_display_name: playerData.displayName,
+        p_avatar: playerData.avatar,
+        p_gifts_to_add: playerData.gifts, // Передаем gifts_to_add
+        p_ton_value_to_add: playerData.tonValue, // Передаем ton_value_to_add
+        p_color: playerData.color,
+        p_is_participant: playerData.isParticipant,
+      })
+      .single() // Ожидаем одну строку (обновленную комнату)
 
     if (error) {
       console.error("Error calling add_player_and_update_room RPC:", error)
