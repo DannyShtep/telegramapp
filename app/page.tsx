@@ -232,12 +232,13 @@ export default function TelegramRouletteApp() {
       setParticipantsForGame(updatedParticipantsForGame)
     }
 
-    // Логика таймера
-    if (roomState.status === "countdown") {
+    // Логика таймера - запускается только в состоянии countdown
+    if (roomState.status === "countdown" && roomState.countdown > 0) {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
         try {
+          // Получаем актуальное состояние комнаты
           const { room: latestRoom, error: fetchRoomError } = await getOrCreateRoom(defaultRoomId)
           if (fetchRoomError || !latestRoom) {
             handleError(fetchRoomError || "Failed to fetch room", "Countdown Timer")
@@ -248,16 +249,23 @@ export default function TelegramRouletteApp() {
             clearInterval(countdownIntervalRef.current!)
             countdownIntervalRef.current = null
             hapticFeedback.impact("heavy")
+
+            // Запускаем определение победителя и вращение
             await determineWinnerAndSpin(defaultRoomId)
             return
           }
 
           const newCountdown = latestRoom.countdown - 1
-          if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
+          if (newCountdown <= 3 && newCountdown > 0) {
+            hapticFeedback.impact("heavy")
+          }
 
+          // Обновляем только countdown, не меняя статус
           await updateRoomState(defaultRoomId, { countdown: newCountdown })
         } catch (error: any) {
           handleError(error.message, "Countdown Timer")
+          clearInterval(countdownIntervalRef.current!)
+          countdownIntervalRef.current = null
         }
       }, 1000)
     } else if (countdownIntervalRef.current) {
@@ -328,16 +336,8 @@ export default function TelegramRouletteApp() {
 
         setIsLoading(true)
 
-        const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
-          roomState.id,
-        )
-
-        if (fetchCurrentParticipantsError) {
-          handleError(fetchCurrentParticipantsError, "Fetch Current Participants")
-          return
-        }
-
-        const existingParticipant = currentParticipants.find((p) => p.telegramId === user.id)
+        // Получаем текущего участника, если он есть
+        const existingParticipant = participantsForGame.find((p) => p.telegramId === user.id)
         const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
         const currentGifts = existingParticipant ? existingParticipant.gifts : 0
 
@@ -345,11 +345,12 @@ export default function TelegramRouletteApp() {
         const newTonValue = currentTonValue + tonValueToAdd
         const newGifts = currentGifts + 1
 
-        const newPlayer = createPlayerObject(user, true, newTonValue, currentParticipants.length)
+        const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
         newPlayer.gifts = newGifts
 
         hapticFeedback.impact("medium")
 
+        // Добавляем игрока - server action сам обновит состояние комнаты
         const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
         if (error) {
@@ -362,43 +363,25 @@ export default function TelegramRouletteApp() {
           return
         }
 
-        // Обновляем состояние комнаты
-        const { participants: updatedParticipantsAfterAdd, error: fetchUpdatedParticipantsError } =
-          await getParticipants(roomState.id)
-
-        if (fetchUpdatedParticipantsError) {
-          handleError(fetchUpdatedParticipantsError, "Fetch Updated Participants")
-          return
-        }
-
-        const newTotalTon = updatedParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
-        const newTotalGifts = updatedParticipantsAfterAdd.length
-
-        let newStatus: RoomState["status"] = "waiting"
-        let newCountdownValue = roomState.countdown
-
-        if (newTotalGifts >= 2) {
-          newStatus = "countdown"
-          if (roomState.status !== "countdown") {
-            newCountdownValue = 20
-          }
-        } else if (newTotalGifts === 1) {
-          newStatus = "single_player"
-        }
-
-        await updateRoomState(roomState.id, {
-          total_gifts: newTotalGifts,
-          total_ton: newTotalTon,
-          status: newStatus,
-          countdown: newCountdownValue,
-        })
+        // Не нужно вручную обновлять состояние комнаты - это делает server action
+        // Realtime подписки автоматически обновят UI
       } catch (error: any) {
         handleError(error.message, "Add Player Exception")
       } finally {
         setIsLoading(false)
       }
     },
-    [user, roomState, supabase, isLoading, hapticFeedback, showAlert, createPlayerObject, handleError],
+    [
+      user,
+      roomState,
+      supabase,
+      isLoading,
+      hapticFeedback,
+      showAlert,
+      createPlayerObject,
+      handleError,
+      participantsForGame,
+    ],
   )
 
   const getWheelSegments = useCallback(() => {
