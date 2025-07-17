@@ -106,7 +106,6 @@ export async function ensureUserOnline(
           username: telegramUsername,
           display_name: displayName, // Сохраняем как display_name
           avatar: avatarUrl,
-          last_active_at: new Date().toISOString(), // Обновляем время последней активности
         })
         .eq("id", existingPlayer.id)
 
@@ -128,7 +127,6 @@ export async function ensureUserOnline(
         color: "#4b5563", // Цвет по умолчанию для наблюдателей
         percentage: 0,
         is_participant: false, // Важно: это наблюдатель
-        last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
       }
 
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
@@ -180,7 +178,6 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
           display_name: playerData.displayName, // Обновляем на случай изменения ника
           avatar: playerData.avatar, // Обновляем на случай изменения аватара
           username: playerData.username,
-          last_active_at: new Date().toISOString(), // Обновляем время последней активности
         })
         .eq("id", existingPlayer.id)
         .select()
@@ -202,7 +199,6 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
           color: playerData.color,
           percentage: playerData.percentage,
           is_participant: playerData.isParticipant,
-          last_active_at: new Date().toISOString(), // Устанавливаем время активности при создании
         })
         .select()
         .single()
@@ -216,6 +212,50 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
 
     // Преобразуем результат перед возвратом на клиент
     const clientPlayer = mapSupabasePlayerToClientPlayer(playerResult.data as SupabasePlayer)
+
+    // После успешного добавления/обновления игрока, сразу обновляем состояние комнаты
+    const { data: allParticipants, error: fetchAllParticipantsError } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("is_participant", true)
+
+    if (fetchAllParticipantsError) {
+      console.error("Error fetching all participants:", fetchAllParticipantsError)
+      return { player: clientPlayer, error: null } // Возвращаем игрока, даже если не удалось обновить комнату
+    }
+
+    const totalParticipants = allParticipants.length
+    const newTotalTon = allParticipants.reduce((sum, p) => sum + p.ton_value, 0)
+    const newTotalGifts = allParticipants.reduce((sum, p) => sum + p.gifts, 0)
+
+    // Определяем новый статус игры
+    let newStatus: "waiting" | "single_player" | "countdown" | "spinning" | "finished" = "waiting"
+    let newCountdown = 20
+
+    if (totalParticipants >= 2) {
+      newStatus = "countdown"
+      newCountdown = 20
+    } else if (totalParticipants === 1) {
+      newStatus = "single_player"
+    } else {
+      newStatus = "waiting"
+    }
+
+    // Обновляем состояние комнаты
+    const { error: updateRoomError } = await supabase
+      .from("rooms")
+      .update({
+        status: newStatus,
+        countdown: newCountdown,
+        total_gifts: newTotalGifts,
+        total_ton: newTotalTon,
+      })
+      .eq("id", roomId)
+
+    if (updateRoomError) {
+      console.error("Error updating room state:", updateRoomError)
+    }
 
     revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
     return { player: clientPlayer, error: null }
@@ -238,20 +278,18 @@ export async function updateRoomState(
 ) {
   try {
     const supabase = await getSupabase()
-    console.log("[Server Action] updateRoomState: Updating room", roomId, "with state:", newState)
 
     const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
 
     if (error) {
-      console.error("[Server Action] Error updating room state:", error)
+      console.error("Error updating room state:", error)
       return { room: null, error: error.message }
     }
-    console.log("[Server Action] Room state updated successfully:", data)
 
     revalidatePath("/")
     return { room: data, error: null }
   } catch (error: any) {
-    console.error("[Server Action] Caught exception in updateRoomState:", error.message)
+    console.error("Caught exception in updateRoomState:", error.message)
     return { room: null, error: error.message }
   }
 }
@@ -260,21 +298,13 @@ export async function updateRoomState(
 export async function resetRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
-    console.log("[Server Action] Resetting room:", roomId)
 
-    // Вместо удаления игроков, сбрасываем их статус участника и ставки
-    const { error: updatePlayersError } = await supabase
-      .from("players")
-      .update({
-        is_participant: false,
-        gifts: 0,
-        ton_value: 0,
-      })
-      .eq("room_id", roomId)
+    // Удаляем всех игроков из комнаты
+    const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
 
-    if (updatePlayersError) {
-      console.error("[Server Action] Error resetting players in resetRoom:", updatePlayersError)
-      return { success: false, error: updatePlayersError.message }
+    if (deletePlayersError) {
+      console.error("Error deleting players in resetRoom:", deletePlayersError)
+      return { success: false, error: deletePlayersError.message }
     }
 
     // Сбрасываем состояние комнаты
@@ -292,32 +322,27 @@ export async function resetRoom(roomId: string) {
       .single()
 
     if (updateRoomError) {
-      console.error("[Server Action] Error resetting room state in resetRoom:", updateRoomError)
+      console.error("Error resetting room state in resetRoom:", updateRoomError)
       return { success: false, error: updateRoomError.message }
     }
-    console.log("[Server Action] Room reset successfully:", room)
 
     revalidatePath("/")
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("[Server Action] Caught exception in resetRoom:", error.message)
+    console.error("Caught exception in resetRoom:", error.message)
     return { success: false, error: error.message }
   }
 }
 
-// Функция для получения всех игроков в комнате (для модального окна "Онлайн")
+// Функция для получения всех игроков в комнате
 export async function getPlayersInRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
-
-    // Фильтруем игроков, которые были активны за последние 45 секунд
-    const activeThreshold = new Date(Date.now() - 45 * 1000).toISOString()
 
     const { data, error } = await supabase
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .gt("last_active_at", activeThreshold) // Добавляем фильтр по времени активности
       .order("created_at", { ascending: true })
 
     if (error) {
@@ -335,7 +360,7 @@ export async function getPlayersInRoom(roomId: string) {
   }
 }
 
-// НОВАЯ ФУНКЦИЯ: Получение участников игры (тех, кто сделал ставку)
+// Функция для получения только участников игры (is_participant = true)
 export async function getParticipants(roomId: string) {
   try {
     const supabase = await getSupabase()
@@ -344,14 +369,17 @@ export async function getParticipants(roomId: string) {
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .eq("is_participant", true) // Только участники, сделавшие ставку
+      .eq("is_participant", true)
       .order("created_at", { ascending: true })
 
     if (error) {
-      console.error("Error fetching participants:", error)
+      console.error("Error fetching participants in getParticipants:", error)
       return { participants: [], error: error.message }
     }
+
+    // Преобразуем полученные данные в camelCase формат
     const clientParticipants: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+
     return { participants: clientParticipants, error: null }
   } catch (error: any) {
     console.error("Caught exception in getParticipants:", error.message)
@@ -359,77 +387,63 @@ export async function getParticipants(roomId: string) {
   }
 }
 
-// Новая функция для определения победителя и обновления статуса комнаты
+// Функция для определения победителя и запуска вращения
 export async function determineWinnerAndSpin(roomId: string) {
   try {
     const supabase = await getSupabase()
-    console.log("[Server Action] determineWinnerAndSpin: Starting for room", roomId)
 
-    // 1. Получаем текущих участников (используем новую функцию)
-    const { participants: participantsData, error: fetchError } = await getParticipants(roomId)
+    // Получаем всех участников
+    const { data: participants, error: fetchError } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("is_participant", true)
 
     if (fetchError) {
-      console.error("[Server Action] Error fetching participants for winner selection:", fetchError)
-      return { winner: null, error: fetchError.message }
-    }
-    console.log("[Server Action] Participants for winner selection:", participantsData.length, "players.")
-
-    const participants = participantsData
-
-    if (participants.length === 0) {
-      console.warn("[Server Action] No participants to determine winner from. Resetting room.")
-      await resetRoom(roomId)
-      return { winner: null, error: "No participants" }
+      console.error("Error fetching participants for winner determination:", fetchError)
+      return { success: false, error: fetchError.message }
     }
 
-    // 2. Вычисляем общий ТОН и создаем взвешенный список
-    const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
-    if (totalTon === 0) {
-      console.warn("[Server Action] Total TON is zero, cannot determine winner. Resetting room.")
-      await resetRoom(roomId)
-      return { winner: null, error: "Total TON is zero" }
+    if (!participants || participants.length < 2) {
+      console.error("Not enough participants to determine winner")
+      return { success: false, error: "Not enough participants" }
     }
 
-    // Случайным образом выбираем победителя на основе веса ТОН
-    let randomNumber = Math.random() * totalTon
-    let winner: Player | null = null
+    // Вычисляем общий банк
+    const totalTon = participants.reduce((sum, p) => sum + p.ton_value, 0)
 
-    for (const p of participants) {
-      randomNumber -= p.tonValue
-      if (randomNumber <= 0) {
-        winner = p
+    // Определяем победителя на основе вероятности
+    const random = Math.random() * totalTon
+    let currentSum = 0
+    let winner = participants[0]
+
+    for (const participant of participants) {
+      currentSum += participant.ton_value
+      if (random <= currentSum) {
+        winner = participant
         break
       }
     }
 
-    if (!winner) {
-      // Запасной вариант: если по какой-то причине победитель не был выбран (чего не должно быть при правильной логике), выбираем первого
-      winner = participants[0]
-      console.warn("[Server Action] Fallback: Winner not selected by random, picking first participant.")
-    }
-    console.log("[Server Action] Determined winner:", winner?.displayName, "with Telegram ID:", winner?.telegramId)
-
-    // 3. Обновляем состояние комнаты с победителем и статусом
-    const { data: updatedRoom, error: updateError } = await supabase
+    // Обновляем состояние комнаты
+    const { error: updateError } = await supabase
       .from("rooms")
       .update({
-        status: "spinning", // Устанавливаем статус "spinning" немедленно
-        winner_telegram_id: winner.telegramId,
+        status: "spinning",
+        winner_telegram_id: winner.telegram_id,
+        countdown: 0,
       })
       .eq("id", roomId)
-      .select()
-      .single()
 
     if (updateError) {
-      console.error("[Server Action] Error updating room with winner:", updateError)
-      return { winner: null, error: updateError.message }
+      console.error("Error updating room with winner:", updateError)
+      return { success: false, error: updateError.message }
     }
-    console.log("[Server Action] Room status set to 'spinning' with winner:", updatedRoom)
 
     revalidatePath("/")
-    return { winner: mapSupabasePlayerToClientPlayer(winner as SupabasePlayer), error: null }
+    return { success: true, error: null }
   } catch (error: any) {
-    console.error("[Server Action] Caught exception in determineWinnerAndSpin:", error.message)
-    return { winner: null, error: error.message }
+    console.error("Caught exception in determineWinnerAndSpin:", error.message)
+    return { success: false, error: error.message }
   }
 }
