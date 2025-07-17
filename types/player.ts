@@ -1,18 +1,8 @@
-export interface Player {
-  id: string
-  telegramId: number
-  username: string | null
-  displayName: string
-  avatar: string | null
-  gifts: number
-  tonValue: number
-  color: string
-  percentage: number
-  isParticipant: boolean
-  lastActiveAt?: string // Optional, for client-side representation
-}
+// types/player.ts
 
-// Supabase representation (snake_case)
+/**
+ * Интерфейс для данных игрока, как они хранятся в базе данных Supabase (snake_case).
+ */
 export interface SupabasePlayer {
   id: string
   room_id: string
@@ -26,15 +16,21 @@ export interface SupabasePlayer {
   percentage: number
   is_participant: boolean
   created_at: string
-  last_active_at: string
+  last_active_at: string // Добавляем это поле
 }
 
-export interface Room {
+/**
+ * Интерфейс для данных игрока, как они используются в клиентском React-коде (camelCase).
+ */
+export interface Player {
   id: string
-  status: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
-  countdown: number
-  winner_telegram_id: number | null
-  total_gifts: number
-  total_ton: number
-  created_at: string
+  telegramId: number
+  username: string | null
+  displayName: string
+  avatar: string | null
+  gifts: number
+  tonValue: number
+  color: string
+  percentage: number
+  isParticipant: boolean
 }
