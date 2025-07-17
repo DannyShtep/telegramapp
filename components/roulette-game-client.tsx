@@ -1,290 +1,739 @@
-"use server"
+"use client"
 
-import { createServerComponentClient } from "@/lib/supabase"
-import type { Player, SupabasePlayer } from "@/types/player"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Plus, X, Eye, Users, AlertCircle } from "lucide-react"
+import { useTelegram } from "../hooks/useTelegram"
+import type { TelegramUser } from "../types/telegram"
+import { createClientComponentClient } from "@/lib/supabase"
+import {
+  addPlayerToRoom,
+  getPlayersInRoom,
+  ensureUserOnline,
+  determineWinnerAndSpin,
+  resetRoom,
+  getParticipants,
+} from "@/app/actions"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import type { Player } from "@/types/player"
 
-/** Returns Supabase client. Throws an error if env vars are missing. */
-export async function getSupabase() {
-  const client = createServerComponentClient()
-  return client
+// Интерфейс для данных комнаты, включая новое поле countdown_end_time
+interface RoomState {
+  id: string
+  status: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
+  countdown: number // Это поле будет игнорироваться в пользу countdown_end_time на клиенте
+  countdown_end_time: string | null // Новое поле для точного отсчета
+  winner_telegram_id: number | null
+  total_gifts: number
+  total_ton: number
 }
 
-/**
- * Функция для преобразования объекта SupabasePlayer (snake_case) в Player (camelCase).
- */
-function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player {
-  return {
-    id: supabasePlayer.id,
-    telegramId: supabasePlayer.telegram_id,
-    username: supabasePlayer.username,
-    displayName:
-      supabasePlayer.display_name ||
-      (supabasePlayer.username
-        ? `@${supabasePlayer.username}`
-        : supabasePlayer.telegram_id
-          ? `User ${supabasePlayer.telegram_id}`
-          : "Unknown User"),
-    avatar: supabasePlayer.avatar,
-    gifts: supabasePlayer.gifts,
-    tonValue: supabasePlayer.ton_value,
-    color: supabasePlayer.color,
-    percentage: supabasePlayer.percentage,
-    isParticipant: supabasePlayer.is_participant,
-  }
+interface RouletteGameClientProps {
+  initialRoomState: RoomState | null
+  initialPlayersInRoom: Player[]
+  initialParticipantsForGame: Player[]
+  initialError: string | null
+  defaultRoomId: string
 }
 
-// Функция для получения или создания комнаты
-export async function getOrCreateRoom(roomId = "default-room-id") {
-  try {
-    const supabase = await getSupabase()
+const items = [
+  { icon: "💝", label: "PvP" },
+  { icon: "🔔", label: "Rolls" },
+  { icon: "👤", label: "Мои гифты" },
+  { icon: "🏪", label: "Магазин" },
+  { icon: "⚡", label: "Заработок" },
+]
 
-    const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
+export default function RouletteGameClient({
+  initialRoomState,
+  initialPlayersInRoom,
+  initialParticipantsForGame,
+  initialError,
+  defaultRoomId,
+}: RouletteGameClientProps) {
+  const { user, isReady, hapticFeedback, getUserPhotoUrl, getUserDisplayName, showAlert } = useTelegram()
+  const supabase = createClientComponentClient()
 
-    if (fetchError && fetchError.code === "PGRST116") {
-      const { data: newRoom, error: createError } = await supabase
-        .from("rooms")
-        .insert({
-          id: roomId,
-          status: "waiting",
-          countdown: 20,
-          total_gifts: 0,
-          total_ton: 0,
-          countdown_end_time: null,
-        }) // Добавляем countdown_end_time
-        .select()
-        .single()
+  const [roomState, setRoomState] = useState<RoomState | null>(initialRoomState)
+  const [playersInRoom, setPlayersInRoom] = useState<Player[]>(initialPlayersInRoom)
+  const [participantsForGame, setParticipantsForGame] = useState<Player[]>(initialParticipantsForGame)
+  const [rotation, setRotation] = useState(0)
+  const [showWinnerModal, setShowWinnerModal] = useState(false)
+  const [winnerDetails, setWinnerDetails] = useState<Player | null>(null)
+  const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
+  const [spinTrigger, setSpinTrigger] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(initialError) // Используем initialError для начального состояния
+  const [countdownSeconds, setCountdownSeconds] = useState(0) // Локальное состояние для отображения таймера
 
-      if (createError) {
-        console.error("Error creating room:", createError)
-        return { room: null, error: createError.message }
+  const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const countdownSpinIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Функция для обработки ошибок
+  const handleError = useCallback(
+    (message: string, context: string) => {
+      console.error(`[${context}] Error:`, message)
+      setError(message)
+      setIsLoading(false)
+      hapticFeedback.notification("error")
+      setTimeout(() => setError(null), 5000)
+    },
+    [hapticFeedback],
+  )
+
+  // Функция для создания объекта игрока из TelegramUser
+  const createPlayerObject = useCallback(
+    (telegramUser: TelegramUser, isParticipant: boolean, tonValue = 0, existingPlayersCount = 0): Player => {
+      return {
+        id: `temp_${telegramUser.id}_${Date.now()}`,
+        telegramId: telegramUser.id,
+        username: telegramUser.username || null,
+        displayName: getUserDisplayName(telegramUser),
+        avatar: getUserPhotoUrl(telegramUser) || null,
+        gifts: isParticipant ? 1 : 0,
+        tonValue: tonValue,
+        color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#4b5563",
+        percentage: 0,
+        isParticipant: isParticipant,
       }
-      return { room: newRoom, error: null }
-    } else if (fetchError) {
-      console.error("Error fetching room:", fetchError)
-      return { room: null, error: fetchError.message }
+    },
+    [getUserDisplayName, getUserPhotoUrl, playerColors],
+  )
+
+  // Функция для обновления онлайн-статуса каждую секунду
+  const updateOnlineStatus = useCallback(async () => {
+    if (!user || !roomState) return
+
+    try {
+      const userAvatar = getUserPhotoUrl(user)
+      const userDisplayName = getUserDisplayName(user)
+      await ensureUserOnline(roomState.id, user.id, user.username, userAvatar, userDisplayName)
+    } catch (err: any) {
+      console.warn("Online status update failed:", err.message)
+    }
+  }, [user, roomState, getUserPhotoUrl, getUserDisplayName])
+
+  // Подписка на Realtime изменения комнаты и игроков
+  useEffect(() => {
+    if (!isReady || !user || !supabase || !roomState) return
+
+    // Подписка на изменения комнаты
+    const roomSubscription = supabase
+      .channel(`room:${defaultRoomId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rooms", filter: `id=eq.${defaultRoomId}` },
+        (payload) => {
+          if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
+            setRoomState(payload.new as RoomState)
+          }
+        },
+      )
+      .subscribe()
+
+    // Подписка на изменения игроков
+    const playerSubscription = supabase
+      .channel(`players_in_room:${defaultRoomId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "players", filter: `room_id=eq.${defaultRoomId}` },
+        async () => {
+          try {
+            const [playersResult, participantsResult] = await Promise.all([
+              getPlayersInRoom(defaultRoomId),
+              getParticipants(defaultRoomId),
+            ])
+
+            if (playersResult.players) {
+              setPlayersInRoom(playersResult.players)
+            }
+            if (participantsResult.participants) {
+              setParticipantsForGame(participantsResult.participants)
+            }
+          } catch (err: any) {
+            console.error("Realtime Update Error:", err.message)
+          }
+        },
+      )
+      .subscribe()
+
+    // Обновление онлайн-статуса при входе и установка интервала
+    updateOnlineStatus()
+    onlineUpdateIntervalRef.current = setInterval(updateOnlineStatus, 1000)
+
+    return () => {
+      supabase.removeChannel(roomSubscription)
+      supabase.removeChannel(playerSubscription)
+      if (onlineUpdateIntervalRef.current) {
+        clearInterval(onlineUpdateIntervalRef.current)
+        onlineUpdateIntervalRef.current = null
+      }
+    }
+  }, [isReady, user, supabase, defaultRoomId, updateOnlineStatus]) // Зависимость от roomState.id для переподписки при смене комнаты
+
+  // Логика таймера и анимации колеса
+  useEffect(() => {
+    if (!roomState) return
+
+    const currentParticipants = participantsForGame
+    const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
+
+    // Пересчитываем проценты
+    const updatedParticipantsForGame = currentParticipants.map((p) => {
+      const newPerc = totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
+      return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
+    })
+
+    const hasParticipantsChanged = updatedParticipantsForGame.some((p, i) => p !== participantsForGame[i])
+    if (hasParticipantsChanged) {
+      setParticipantsForGame(updatedParticipantsForGame)
     }
 
-    return { room, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in getOrCreateRoom:", error.message)
-    return { room: null, error: error.message }
-  }
-}
-
-// Новая функция для обеспечения присутствия пользователя в списке онлайн
-export async function ensureUserOnline(
-  roomId: string,
-  telegramId: number,
-  telegramUsername: string | undefined,
-  avatarUrl: string,
-  displayName: string,
-) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data: existingPlayer, error: fetchPlayerError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("telegram_id", telegramId)
-      .single()
-
-    if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      console.error("Error fetching existing player in ensureUserOnline:", fetchPlayerError)
-      return { success: false, error: fetchPlayerError.message }
-    }
-
-    if (existingPlayer) {
-      const { error: updateError } = await supabase
-        .from("players")
-        .update({
-          username: telegramUsername,
-          display_name: displayName,
-          avatar: avatarUrl,
-          last_active_at: new Date().toISOString(), // Обновляем время активности
-        })
-        .eq("id", existingPlayer.id)
-
-      if (updateError) {
-        console.error("Error updating existing player in ensureUserOnline:", updateError)
-        return { success: false, error: updateError.message }
+    // Логика анимации колеса во время обратного отсчета
+    if (roomState.status === "countdown") {
+      if (!countdownSpinIntervalRef.current) {
+        // Запускаем анимацию вращения только если она еще не запущена
+        countdownSpinIntervalRef.current = setInterval(() => {
+          setRotation((prev) => prev + 2)
+        }, 50)
       }
     } else {
-      const newPlayerData = {
-        id: `online_${telegramId}_${Date.now()}`,
-        room_id: roomId,
-        telegram_id: telegramId,
-        username: telegramUsername,
-        display_name: displayName,
-        avatar: avatarUrl,
-        gifts: 0,
-        ton_value: 0,
-        color: "#4b5563",
-        percentage: 0,
-        is_participant: false,
-        last_active_at: new Date().toISOString(), // Устанавливаем время активности
-      }
-
-      const { error: insertError } = await supabase.from("players").insert(newPlayerData)
-
-      if (insertError) {
-        console.error("Error inserting new online player in ensureUserOnline:", insertError)
-        return { success: false, error: insertError.message }
+      // Если статус комнаты не "countdown", останавливаем анимацию вращения
+      if (countdownSpinIntervalRef.current) {
+        clearInterval(countdownSpinIntervalRef.current)
+        countdownSpinIntervalRef.current = null
       }
     }
-    return { success: true, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in ensureUserOnline:", error.message)
-    return { success: false, error: error.message }
-  }
-}
 
-// Функция для добавления игрока в комнату или обновления его статуса с использованием RPC
-export async function addPlayerToRoom(roomId: string, playerData: Player) {
-  try {
-    const supabase = await getSupabase()
+    // Логика таймера: отсчет на клиенте
+    if (roomState.status === "countdown" && roomState.countdown_end_time) {
+      const endTime = new Date(roomState.countdown_end_time).getTime()
 
-    const { data, error } = await supabase
-      .rpc("add_player_and_update_room", {
-        p_room_id: roomId,
-        p_telegram_id: playerData.telegramId,
-        p_username: playerData.username,
-        p_display_name: playerData.displayName,
-        p_avatar: playerData.avatar,
-        p_gifts_to_add: playerData.gifts, // Передаем gifts_to_add
-        p_ton_value_to_add: playerData.tonValue, // Передаем ton_value_to_add
-        p_color: playerData.color,
-        p_is_participant: playerData.isParticipant,
-      })
-      .single() // Ожидаем одну строку (обновленную комнату)
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
-    if (error) {
-      console.error("Error calling add_player_and_update_room RPC:", error)
-      return { room: null, error: error.message }
+      countdownIntervalRef.current = setInterval(async () => {
+        const now = Date.now()
+        const remainingSeconds = Math.max(0, Math.floor((endTime - now) / 1000))
+        setCountdownSeconds(remainingSeconds)
+
+        if (remainingSeconds <= 0) {
+          clearInterval(countdownIntervalRef.current!)
+          countdownIntervalRef.current = null
+          hapticFeedback.impact("heavy")
+
+          // Запускаем определение победителя и вращение через серверный экшен
+          await determineWinnerAndSpin(defaultRoomId)
+        } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
+          hapticFeedback.impact("heavy")
+        }
+      }, 1000)
+    } else {
+      setCountdownSeconds(0) // Сбрасываем таймер, если не в режиме отсчета
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
     }
 
-    // RPC функция возвращает обновленную комнату, но нам нужен обновленный игрок.
-    // Для этого мы можем просто получить игрока после RPC, или полагаться на Realtime.
-    // Для скорости, полагаемся на Realtime для обновления игрока на клиенте.
-    // Возвращаем обновленную комнату, если это необходимо для клиента.
-    return { room: data, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in addPlayerToRoom RPC:", error.message)
-    return { room: null, error: error.message }
-  }
-}
+    // Обработка финального вращения колеса
+    if (roomState.status === "spinning" && spinTrigger === 0) {
+      const randomRotation = 5400 + Math.random() * 1440
+      setRotation((prev) => prev + randomRotation)
+      setSpinTrigger(1)
 
-// Функция для обновления состояния комнаты (теперь только для countdown_end_time)
-export async function updateRoomState(
-  roomId: string,
-  newState: {
-    status?: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
-    countdown?: number // Это поле будет игнорироваться в пользу countdown_end_time
-    winner_telegram_id?: number | null
-    total_gifts?: number
-    total_ton?: number
-    countdown_end_time?: string | null // Используем это поле
-  },
-) {
-  try {
-    const supabase = await getSupabase()
+      setTimeout(async () => {
+        try {
+          const winner = updatedParticipantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
+          if (winner) {
+            setWinnerDetails(winner)
+            setShowWinnerModal(true)
+            hapticFeedback.notification("success")
 
-    const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
-
-    if (error) {
-      console.error("Error updating room state:", error)
-      return { room: null, error: error.message }
-    }
-    return { room: data, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in updateRoomState:", error.message)
-    return { room: null, error: error.message }
-  }
-}
-
-// Функция для сброса комнаты с использованием RPC
-export async function resetRoom(roomId: string) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data, error } = await supabase.rpc("reset_room_function", { p_room_id: roomId }).single()
-
-    if (error) {
-      console.error("Error calling reset_room_function RPC:", error)
-      return { success: false, error: error.message }
-    }
-    return { success: true, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in resetRoom RPC:", error.message)
-    return { success: false, error: error.message }
-  }
-}
-
-// Функция для получения всех игроков в комнате
-export async function getPlayersInRoom(roomId: string) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data, error } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .order("last_active_at", { ascending: false }) // Сортируем по последней активности
-
-    if (error) {
-      console.error("Error fetching players in getPlayersInRoom:", error)
-      return { players: [], error: error.message }
+            setTimeout(async () => {
+              setShowWinnerModal(false)
+              await resetRoom(defaultRoomId)
+              setSpinTrigger(0)
+              setRotation(0) // Сбрасываем вращение
+            }, 4000)
+          } else {
+            await resetRoom(defaultRoomId)
+            setSpinTrigger(0)
+            setRotation(0) // Сбрасываем вращение
+          }
+        } catch (err: any) {
+          handleError(err.message, "Spin Completion")
+        }
+      }, 15000)
+    } else if (roomState.status !== "spinning" && spinTrigger !== 0) {
+      setSpinTrigger(0)
     }
 
-    const clientPlayers: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
-
-    return { players: clientPlayers, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in getPlayersInRoom:", error.message)
-    return { players: [], error: error.message }
-  }
-}
-
-// Функция для получения только участников игры (is_participant = true)
-export async function getParticipants(roomId: string) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data, error } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("is_participant", true)
-      .order("created_at", { ascending: true })
-
-    if (error) {
-      console.error("Error fetching participants in getParticipants:", error)
-      return { participants: [], error: error.message }
+    // Общая очистка для всех интервалов, управляемых этим эффектом
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
+      if (countdownSpinIntervalRef.current) {
+        clearInterval(countdownSpinIntervalRef.current)
+        countdownSpinIntervalRef.current = null
+      }
     }
+  }, [roomState, participantsForGame, spinTrigger, defaultRoomId, hapticFeedback, handleError])
 
-    const clientParticipants: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
+  const handleAddPlayer = useCallback(
+    async (isGift = true, tonAmountToAdd?: number) => {
+      if (isLoading) {
+        return
+      }
 
-    return { participants: clientParticipants, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in getParticipants:", error.message)
-    return { participants: [], error: error.message }
+      try {
+        if (!user || !roomState || !supabase) {
+          handleError("Отсутствуют необходимые данные", "Add Player")
+          return
+        }
+
+        if (roomState.status === "spinning" || roomState.status === "finished") {
+          showAlert("Игра уже идет или завершена. Дождитесь нового раунда.")
+          hapticFeedback.notification("error")
+          return
+        }
+
+        // Проверяем, если отсчет уже идет и осталось мало времени
+        if (roomState.status === "countdown" && roomState.countdown_end_time) {
+          const remaining = Math.max(
+            0,
+            Math.floor((new Date(roomState.countdown_end_time).getTime() - Date.now()) / 1000),
+          )
+          if (remaining <= 3) {
+            showAlert("Нельзя присоединиться в последние секунды отсчета.")
+            hapticFeedback.notification("error")
+            return
+          }
+        }
+
+        setIsLoading(true)
+        setError(null)
+
+        const existingParticipant = participantsForGame.find((p) => p.telegramId === user.id)
+        const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
+        const currentGifts = existingParticipant ? existingParticipant.gifts : 0
+
+        const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
+        const newTonValue = currentTonValue + tonValueToAdd
+        const newGifts = currentGifts + 1
+
+        const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
+        newPlayer.gifts = newGifts // Обновляем количество подарков
+
+        hapticFeedback.impact("medium")
+
+        // Вызываем RPC функцию через server action
+        const { room, error } = await addPlayerToRoom(roomState.id, newPlayer)
+
+        if (error) {
+          handleError(error, "Add Player to Room")
+          return
+        }
+        // Realtime подписки автоматически обновят UI
+      } catch (error: any) {
+        handleError(error.message, "Add Player Exception")
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [
+      user,
+      roomState,
+      supabase,
+      isLoading,
+      hapticFeedback,
+      showAlert,
+      createPlayerObject,
+      participantsForGame,
+      handleError,
+    ],
+  )
+
+  const getWheelSegments = useCallback(() => {
+    const currentParticipants = participantsForGame
+    if (currentParticipants.length === 0) return []
+
+    let currentAngle = 0
+    return currentParticipants.map((player) => {
+      const segmentAngle = (player.percentage / 100) * 360
+      const segment = {
+        player,
+        startAngle: currentAngle,
+        endAngle: currentAngle + segmentAngle,
+        angle: segmentAngle,
+      }
+      currentAngle += segmentAngle
+      return segment
+    })
+  }, [participantsForGame])
+
+  const segments = getWheelSegments()
+  const participants = participantsForGame
+
+  const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
+
+  const formatGiftsText = useCallback((count: number) => {
+    if (count === 0) return "0 подарков"
+    if (count === 1) return "1 подарок"
+    if (count >= 2 && count <= 4) return `${count} подарка`
+    return `${count} подарков`
+  }, [])
+
+  // Показываем загрузку только при первоначальной инициализации Telegram WebApp или если roomState не загружен
+  if (!isReady || !roomState) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto mb-4"></div>
+          <p className="text-gray-400">{!isReady ? "Подключение к Telegram..." : "Загрузка данных комнаты..."}</p>
+        </div>
+      </div>
+    )
   }
-}
 
-// Функция для определения победителя и запуска вращения с использованием RPC
-export async function determineWinnerAndSpin(roomId: string) {
-  try {
-    const supabase = await getSupabase()
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden touch-manipulation">
+      {/* Уведомление об ошибке */}
+      {error && (
+        <div className="fixed top-4 left-4 right-4 z-50">
+          <Alert className="bg-red-900/90 border-red-700 backdrop-blur-sm">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-white">{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
 
-    const { data, error } = await supabase.rpc("determine_winner_and_spin", { p_room_id: roomId }).single()
+      {/* Индикатор загрузки для действий */}
+      {isLoading && (
+        <div className="fixed top-20 left-4 right-4 z-50">
+          <Alert className="bg-blue-900/90 border-blue-700 backdrop-blur-sm">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+            <AlertDescription className="text-white ml-2">Обработка запроса...</AlertDescription>
+          </Alert>
+        </div>
+      )}
 
-    if (error) {
-      console.error("Error calling determine_winner_and_spin RPC:", error)
-      return { success: false, error: error.message }
-    }
-    return { success: true, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in determineWinnerAndSpin RPC:", error.message)
-    return { success: false, error: error.message }
-  }
+      {/* Верхние элементы UI */}
+      <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
+        {/* Счетчик игроков в комнате - ТОЛЬКО СПИСОК ОНЛАЙН ИГРОКОВ */}
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
+              onClick={() => hapticFeedback.selection()}
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-black/90 border-gray-600 rounded-2xl max-w-md w-full max-h-[70vh] flex flex-col">
+            <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-green-400" />
+                <DialogTitle className="text-lg font-bold text-white">Онлайн игроки</DialogTitle>
+              </div>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto p-4">
+              {playersInRoom.length === 0 ? (
+                <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
+              ) : (
+                <div className="space-y-2">
+                  {playersInRoom.map((player) => (
+                    <div
+                      key={player.id}
+                      className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                        player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
+                      }`}
+                    >
+                      <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0 animate-pulse"></div>
+                      <img
+                        src={player.avatar || "/placeholder.svg"}
+                        alt="Player"
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                        style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
+                      />
+                      <div className="flex-1">
+                        <span className="text-white font-medium">{player.displayName}</span>
+                        {player.isParticipant && <div className="text-xs text-green-400">Участвует в игре</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Информация о текущем пользователе */}
+        {user && (
+          <div className="bg-black/60 border border-gray-600 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 h-10">
+            <img
+              src={getUserPhotoUrl(user) || "/placeholder.svg"}
+              alt="Avatar"
+              className="w-6 h-6 rounded-full object-cover"
+            />
+            <span className="text-sm text-white whitespace-nowrap">{getUserDisplayName(user)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Общий банк */}
+      <div className="flex items-center justify-center mb-4 pt-16 relative z-10">
+        <div className="flex items-center gap-2 text-green-400">
+          <div className="w-2 h-2 bg-green-400 rounded-full flex-shrink-0 animate-pulse"></div>
+          <span className="text-lg font-medium">Общий банк</span>
+        </div>
+      </div>
+
+      {/* Счетчик подарков и ТОН */}
+      <div className="flex justify-center mb-8 relative z-10">
+        <div className="border border-gray-600 px-6 py-3 rounded-xl font-medium text-lg bg-black/20 backdrop-blur-sm">
+          {formatGiftsText(roomState.total_gifts)} | {(roomState.total_ton ?? 0).toFixed(1)} ТОН
+        </div>
+      </div>
+
+      {/* Колесо рулетки и указатель */}
+      <div className="flex justify-center items-center mb-8 relative px-4">
+        {/* Указатель */}
+        <div className="absolute top-[-15px] left-1/2 -translate-x-1/2 z-30 transform rotate-180">
+          <div className="w-0 h-0 border-l-[10px] border-r-[10px] border-b-[15px] border-l-transparent border-r-transparent border-b-green-500 drop-shadow-lg"></div>
+        </div>
+
+        {/* Колесо */}
+        <div
+          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative shadow-2xl shadow-gray-900/50 wheel-container wheel-spin"
+          style={{
+            transform: `rotate(${rotation}deg)`,
+            transition: roomState.status === "spinning" ? "transform 15s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
+          }}
+        >
+          {roomState.status === "waiting" ? (
+            <div className="w-full h-full bg-gray-600 rounded-full relative">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
+                <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
+              </div>
+            </div>
+          ) : participants.length === 1 && roomState.status === "single_player" ? (
+            <div className="w-full h-full rounded-full relative" style={{ backgroundColor: participants[0]?.color }}>
+              <div className="absolute top-16 left-16 w-8 h-8 rounded-full overflow-hidden border-2 border-white">
+                <img
+                  src={participants[0]?.avatar || "/placeholder.svg"}
+                  alt="Player"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
+                <span className="text-gray-300 text-sm font-medium">Ждем второго игрока</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <svg className="w-full h-full" viewBox="0 0 200 200">
+                {segments.map((segment, index) => {
+                  const startAngleRad = (segment.startAngle * Math.PI) / 180
+                  const endAngleRad = (segment.endAngle * Math.PI) / 180
+                  const largeArcFlag = segment.angle > 180 ? 1 : 0
+
+                  const x1 = 100 + 100 * Math.cos(startAngleRad)
+                  const y1 = 100 + 100 * Math.sin(startAngleRad)
+                  const x2 = 100 + 100 * Math.cos(endAngleRad)
+                  const y2 = 100 + 100 * Math.sin(endAngleRad)
+
+                  const pathData = [
+                    `M 100 100`,
+                    `L ${x1} ${y1}`,
+                    `A 100 100 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                    "Z",
+                  ].join(" ")
+
+                  const midAngle = (segment.startAngle + segment.endAngle) / 2
+                  const midAngleRad = (midAngle * Math.PI) / 180
+                  const avatarX = 100 + 70 * Math.cos(midAngleRad)
+                  const avatarY = 100 + 70 * Math.sin(midAngleRad)
+
+                  return (
+                    <g key={index}>
+                      <path d={pathData} fill={segment.player.color} />
+                      <circle
+                        cx={avatarX}
+                        cy={avatarY}
+                        r="8"
+                        fill="white"
+                        stroke={segment.player.color}
+                        strokeWidth="2"
+                      />
+                      <image
+                        x={avatarX - 8}
+                        y={avatarY - 8}
+                        width="16"
+                        height="16"
+                        href={segment.player.avatar || "/placeholder.svg"}
+                        clipPath="circle(8px at center)"
+                      />
+                    </g>
+                  )
+                })}
+              </svg>
+
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
+                {roomState.status === "countdown" ? (
+                  <span className="text-green-400 text-lg font-mono font-bold">{countdownSeconds}</span>
+                ) : (
+                  <span className="text-gray-300 text-sm font-medium">
+                    {roomState.status === "spinning" ? "Крутим!" : "Готов к игре"}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Кнопки действий */}
+      <div className="flex gap-3 px-4 mb-6 relative z-10">
+        <Button
+          className="flex-1 bg-green-500 hover:bg-green-600 text-black font-medium py-3 rounded-xl disabled:bg-gray-600 disabled:text-gray-400 touch-manipulation transition-all duration-200"
+          onClick={() => handleAddPlayer(true)}
+          disabled={
+            isLoading ||
+            roomState.status === "spinning" ||
+            roomState.status === "finished" ||
+            (roomState.status === "countdown" && countdownSeconds <= 3)
+          }
+        >
+          <Plus className="w-5 h-5 mr-2" />
+          {isLoading ? "Добавляем..." : "Добавить гифт"}
+        </Button>
+
+        <Button
+          className={`flex-1 font-medium py-3 rounded-xl flex items-center justify-center touch-manipulation transition-all duration-200 ${
+            isLoading || (roomState.status === "countdown" && countdownSeconds <= 3)
+              ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+              : "bg-green-400 hover:bg-green-500 text-black"
+          }`}
+          onClick={() => {
+            handleAddPlayer(false, displayedTonAmount)
+            setDisplayedTonAmount(Math.floor(Math.random() * 20 + 5))
+          }}
+          disabled={
+            isLoading ||
+            roomState.status === "spinning" ||
+            roomState.status === "finished" ||
+            (roomState.status === "countdown" && countdownSeconds <= 3)
+          }
+        >
+          <span className="text-2xl mr-2 flex-shrink-0">🎁</span>
+          <span className={`whitespace-nowrap ${tonButtonFontSizeClass}`}>
+            {isLoading ? "Добавляем..." : `Добавить ${displayedTonAmount} ТОН`}
+          </span>
+        </Button>
+      </div>
+
+      {/* Навигационные иконки */}
+      <div className="flex justify-center gap-4 mb-6 relative z-10">
+        {items.map((item, index) => (
+          <Button
+            key={index}
+            variant="ghost"
+            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white py-3 touch-manipulation transition-colors duration-200"
+            onClick={() => hapticFeedback.selection()}
+          >
+            <span className="text-lg">{item.icon}</span>
+            <span className="text-xs">{item.label}</span>
+          </Button>
+        ))}
+      </div>
+
+      {/* Список участников игры с их ставками */}
+      <div className="px-4 mb-6 relative z-10 mobile-safe-area">
+        {participants.length === 0 ? (
+          <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
+            <p className="text-gray-400">Нет участников в текущей игре</p>
+            <p className="text-gray-500 text-sm mt-2">Добавьте ТОН, чтобы начать игру!</p>
+          </Card>
+        ) : (
+          <>
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-bold text-white">Участники игры</h3>
+              <p className="text-sm text-gray-400">Ставки обновляются в реальном времени</p>
+            </div>
+            {participants.map((player) => (
+              <div key={player.id} className="mb-3">
+                <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm transition-all duration-200 hover:bg-black/70">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={player.avatar || "/placeholder.svg"}
+                        alt="Player"
+                        className="w-10 h-10 rounded-full object-cover"
+                        style={{ border: `3px solid ${player.color}` }}
+                      />
+                      <div>
+                        <span className="text-white font-medium">{player.displayName}</span>
+                        {player.gifts > 1 && <div className="text-xs text-gray-400">{player.gifts} подарков</div>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="text-right">
+                        <div className="bg-white text-black px-3 py-1 rounded-full text-sm font-bold">
+                          {player.percentage.toFixed(player.percentage < 10 ? 2 : 0)}%
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">шанс победы</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                          {player.tonValue.toFixed(1)} ТОН
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">ставка</div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Модал победителя */}
+      {showWinnerModal && winnerDetails && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <Card className="bg-black border-gray-600 p-6 rounded-2xl max-w-sm w-full text-center relative animate-in zoom-in-95 duration-300">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-2 right-2 text-gray-400 hover:text-white touch-manipulation"
+              onClick={() => setShowWinnerModal(false)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+            <div className="text-4xl mb-4 animate-bounce">🎉</div>
+            <h2 className="text-2xl font-bold text-white mb-2">Поздравляем!</h2>
+            <img
+              src={winnerDetails.avatar || "/placeholder.svg"}
+              alt="Winner"
+              className="w-16 h-16 rounded-full mx-auto mb-2 object-cover border-4 border-green-400"
+            />
+            <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
+              {winnerDetails.displayName}
+            </div>
+            <div className="text-sm text-gray-400 mb-4">Выиграл {(roomState.total_ton ?? 0).toFixed(1)} ТОН</div>
+            <div className="text-xs text-gray-500">Шанс победы: {winnerDetails.percentage.toFixed(1)}%</div>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
 }
