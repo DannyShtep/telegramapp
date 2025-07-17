@@ -8,23 +8,22 @@ import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
 import {
-  ensureUserOnline,
   addPlayerToRoom,
   getPlayersInRoom,
-  getParticipants,
+  ensureUserOnline,
   determineWinnerAndSpin,
   resetRoom,
+  getParticipants,
 } from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { Player } from "@/types/player"
 
-// Интерфейс для данных комнаты, включая новое поле countdown_end_time
 interface RoomState {
   id: string
   status: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
-  countdown: number // Это поле будет игнорироваться в пользу countdown_end_time
-  countdown_end_time: string | null // Новое поле для точного отсчета
+  countdown: number // Это поле будет игнорироваться в пользу countdown_end_time на клиенте
+  countdown_end_time: string | null // Новое поле для точного таймера
   winner_telegram_id: number | null
   total_gifts: number
   total_ton: number
@@ -34,7 +33,7 @@ interface RouletteGameClientProps {
   initialRoomState: RoomState | null
   initialPlayersInRoom: Player[]
   initialParticipantsForGame: Player[]
-  initialError: string | null
+  defaultRoomId: string
 }
 
 const items = [
@@ -49,12 +48,10 @@ export default function RouletteGameClient({
   initialRoomState,
   initialPlayersInRoom,
   initialParticipantsForGame,
-  initialError,
+  defaultRoomId,
 }: RouletteGameClientProps) {
   const { user, isReady, hapticFeedback, getUserPhotoUrl, getUserDisplayName, showAlert } = useTelegram()
   const supabase = createClientComponentClient()
-
-  const defaultRoomId = "default-room-id"
 
   const [roomState, setRoomState] = useState<RoomState | null>(initialRoomState)
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>(initialPlayersInRoom)
@@ -65,9 +62,9 @@ export default function RouletteGameClient({
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
   const [spinTrigger, setSpinTrigger] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(initialError)
+  const [error, setError] = useState<string | null>(null)
   const [isCountdownSpinning, setIsCountdownSpinning] = useState(false)
-  const [countdownSeconds, setCountdownSeconds] = useState(0) // Локальное состояние для отображения таймера
+  const [countdownSeconds, setCountdownSeconds] = useState(0) // Состояние для отображения секунд
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -75,9 +72,9 @@ export default function RouletteGameClient({
 
   // Функция для обработки ошибок
   const handleError = useCallback(
-    (err: string, context: string) => {
-      console.error(`[${context}] Error:`, err)
-      setError(err)
+    (message: string, context: string) => {
+      console.error(`[${context}] Error:`, message)
+      setError(message)
       setIsLoading(false)
       hapticFeedback.notification("error")
       setTimeout(() => setError(null), 5000)
@@ -87,24 +84,24 @@ export default function RouletteGameClient({
 
   // Функция для создания объекта игрока из TelegramUser
   const createPlayerObject = useCallback(
-    (telegramUser: TelegramUser, isParticipant: boolean, tonValue = 0, gifts = 0): Player => {
+    (telegramUser: TelegramUser, isParticipant: boolean, tonValue = 0, existingPlayersCount = 0): Player => {
       return {
         id: `temp_${telegramUser.id}_${Date.now()}`,
         telegramId: telegramUser.id,
         username: telegramUser.username || null,
         displayName: getUserDisplayName(telegramUser),
         avatar: getUserPhotoUrl(telegramUser) || null,
-        gifts: gifts,
+        gifts: isParticipant ? 1 : 0,
         tonValue: tonValue,
-        color: isParticipant ? playerColors[participantsForGame.length % playerColors.length] : "#4b5563",
+        color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#4b5563",
         percentage: 0,
         isParticipant: isParticipant,
       }
     },
-    [getUserDisplayName, getUserPhotoUrl, playerColors, participantsForGame.length],
+    [getUserDisplayName, getUserPhotoUrl, playerColors],
   )
 
-  // Функция для обновления онлайн-статуса каждую секунду
+  // Функция для обновления онлайн-статуса
   const updateOnlineStatus = useCallback(async () => {
     if (!user || !roomState) return
 
@@ -112,8 +109,8 @@ export default function RouletteGameClient({
       const userAvatar = getUserPhotoUrl(user)
       const userDisplayName = getUserDisplayName(user)
       await ensureUserOnline(roomState.id, user.id, user.username, userAvatar, userDisplayName)
-    } catch (err: any) {
-      console.warn("Online status update failed:", err.message)
+    } catch (error: any) {
+      console.warn("Online status update failed:", error.message)
     }
   }, [user, roomState, getUserPhotoUrl, getUserDisplayName])
 
@@ -154,29 +151,38 @@ export default function RouletteGameClient({
             if (participantsResult.participants) {
               setParticipantsForGame(participantsResult.participants)
             }
-          } catch (err: any) {
-            console.error("Realtime Update Error:", err.message)
+          } catch (error: any) {
+            console.error("Realtime Update Error:", error.message)
           }
         },
       )
       .subscribe()
 
-    // Обновление онлайн-статуса при входе
+    return () => {
+      supabase.removeChannel(roomSubscription)
+      supabase.removeChannel(playerSubscription)
+    }
+  }, [isReady, user, supabase, defaultRoomId]) // Зависимость от defaultRoomId для переподписки при смене комнаты
+
+  // Обновление онлайн-статуса каждую секунду
+  useEffect(() => {
+    if (!isReady || !user || !supabase || !roomState) return
+
+    // Первоначальное обновление
     updateOnlineStatus()
+
     // Устанавливаем интервал для обновления каждую секунду
     onlineUpdateIntervalRef.current = setInterval(updateOnlineStatus, 1000)
 
     return () => {
-      supabase.removeChannel(roomSubscription)
-      supabase.removeChannel(playerSubscription)
       if (onlineUpdateIntervalRef.current) {
         clearInterval(onlineUpdateIntervalRef.current)
         onlineUpdateIntervalRef.current = null
       }
     }
-  }, [isReady, user, supabase, roomState?.id, updateOnlineStatus]) // Зависимость от roomState.id для переподписки при смене комнаты
+  }, [isReady, user, supabase, roomState, updateOnlineStatus])
 
-  // Логика таймера и анимации колеса
+  // Логика таймера и игры
   useEffect(() => {
     if (!roomState) return
 
@@ -201,28 +207,17 @@ export default function RouletteGameClient({
         const countdownSpinInterval = setInterval(() => {
           setRotation((prev) => prev + 2)
         }, 50)
-
-        const cleanup = () => {
-          clearInterval(countdownSpinInterval)
-          setIsCountdownSpinning(false)
-        }
-
-        const statusCheckInterval = setInterval(() => {
-          if (roomState.status !== "countdown") {
-            cleanup()
-            clearInterval(statusCheckInterval)
-          }
-        }, 100)
+        return () => clearInterval(countdownSpinInterval) // Очистка при размонтировании или изменении статуса
       }
     } else {
       setIsCountdownSpinning(false)
     }
 
-    // Логика таймера: отсчет на клиенте
+    // Логика таймера - теперь на клиенте
     if (roomState.status === "countdown" && roomState.countdown_end_time) {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
-
       const endTime = new Date(roomState.countdown_end_time).getTime()
+
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
         const now = Date.now()
@@ -235,16 +230,18 @@ export default function RouletteGameClient({
           setIsCountdownSpinning(false)
           hapticFeedback.impact("heavy")
 
-          // Запускаем определение победителя и вращение через серверный экшен
+          // Запускаем определение победителя и вращение
           await determineWinnerAndSpin(defaultRoomId)
         } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
           hapticFeedback.impact("heavy")
         }
       }, 1000)
-    } else if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current)
-      countdownIntervalRef.current = null
-      setCountdownSeconds(0) // Сбрасываем таймер, если не в режиме отсчета
+    } else {
+      setCountdownSeconds(0) // Сбрасываем отображение таймера
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
     }
 
     // Обработка финального вращения колеса
@@ -273,8 +270,8 @@ export default function RouletteGameClient({
             setSpinTrigger(0)
             setRotation(0) // Сбрасываем вращение
           }
-        } catch (err: any) {
-          handleError(err.message, "Spin Completion")
+        } catch (error: any) {
+          handleError(error.message, "Spin Completion")
         }
       }, 15000)
     } else if (roomState.status !== "spinning" && spinTrigger !== 0) {
@@ -307,10 +304,17 @@ export default function RouletteGameClient({
           return
         }
 
-        if (roomState.status === "countdown" && countdownSeconds <= 3) {
-          showAlert("Нельзя присоединиться в последние секунды отсчета.")
-          hapticFeedback.notification("error")
-          return
+        // Проверяем, если отсчет уже идет и осталось мало времени
+        if (roomState.status === "countdown" && roomState.countdown_end_time) {
+          const remaining = Math.max(
+            0,
+            Math.floor((new Date(roomState.countdown_end_time).getTime() - Date.now()) / 1000),
+          )
+          if (remaining <= 3) {
+            showAlert("Нельзя присоединиться в последние секунды отсчета.")
+            hapticFeedback.notification("error")
+            return
+          }
         }
 
         setIsLoading(true)
@@ -321,24 +325,24 @@ export default function RouletteGameClient({
         const currentGifts = existingParticipant ? existingParticipant.gifts : 0
 
         const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
-        const giftsToAdd = isGift ? 1 : 0
+        const newTonValue = currentTonValue + tonValueToAdd
+        const newGifts = currentGifts + 1
 
-        // Создаем объект игрока с учетом добавленных значений
-        const newPlayer = createPlayerObject(user, true, tonValueToAdd, giftsToAdd)
+        const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
+        newPlayer.gifts = newGifts // Обновляем количество подарков
 
         hapticFeedback.impact("medium")
 
-        // Вызываем RPC функцию через серверный экшен
+        // Вызываем RPC функцию через server action
         const { room, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
         if (error) {
           handleError(error, "Add Player to Room")
           return
         }
-
-        // Realtime подписки автоматически обновят UI, поэтому здесь не нужно setRoomState
-      } catch (err: any) {
-        handleError(err.message, "Add Player Exception")
+        // Realtime подписки автоматически обновят UI
+      } catch (error: any) {
+        handleError(error.message, "Add Player Exception")
       } finally {
         setIsLoading(false)
       }
@@ -353,7 +357,6 @@ export default function RouletteGameClient({
       createPlayerObject,
       participantsForGame,
       handleError,
-      countdownSeconds,
     ],
   )
 
@@ -388,38 +391,12 @@ export default function RouletteGameClient({
   }, [])
 
   // Показываем загрузку только при первоначальной инициализации Telegram WebApp
-  if (!isReady) {
+  if (!isReady || !roomState) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto mb-4"></div>
-          <p className="text-gray-400">Подключение к Telegram...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Если есть ошибка при начальной загрузке данных (например, Supabase не настроен)
-  if (initialError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white p-4">
-        <Card className="bg-gray-900 border-gray-700 p-6 text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-2">Ошибка загрузки игры</h2>
-          <p className="text-gray-400">{initialError}</p>
-          <p className="text-gray-500 text-sm mt-2">Пожалуйста, попробуйте позже или проверьте конфигурацию.</p>
-        </Card>
-      </div>
-    )
-  }
-
-  // Если roomState еще не загружен (хотя Server Component должен был его предоставить)
-  if (!roomState) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto mb-4"></div>
-          <p className="text-gray-400">Загрузка данных комнаты...</p>
+          <p className="text-gray-400">{!isReady ? "Подключение к Telegram..." : "Загрузка данных комнаты..."}</p>
         </div>
       </div>
     )
@@ -629,7 +606,7 @@ export default function RouletteGameClient({
       <div className="flex gap-3 px-4 mb-6 relative z-10">
         <Button
           className="flex-1 bg-green-500 hover:bg-green-600 text-black font-medium py-3 rounded-xl disabled:bg-gray-600 disabled:text-gray-400 touch-manipulation transition-all duration-200"
-          onClick={() => handleAddPlayer(true, 0)} // Передаем 0 TON для гифта
+          onClick={() => handleAddPlayer(true)}
           disabled={
             isLoading ||
             roomState.status === "spinning" ||
