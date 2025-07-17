@@ -4,7 +4,7 @@ export interface TelegramUser {
   last_name?: string
   username?: string
   language_code?: string
-  is_premium?: boolean // Оставляем для соответствия API, но не используем в UI
+  is_premium?: boolean
   photo_url?: string
 }
 
@@ -115,7 +115,27 @@ export interface TelegramWebApp {
   requestWriteAccess(callback?: (granted: boolean) => void): void
   requestContact(callback?: (granted: boolean, contact?: any) => void): void
   isVersionAtLeast(version: string): boolean
-  disableVerticalSwipes(disable?: boolean): void // Добавлено для блокировки свайпов
+  disableVerticalSwipes(disable?: boolean): void
+}
+
+// Расширенные типы для лучшей типизации
+export interface TelegramTheme {
+  bg_color: string
+  text_color: string
+  hint_color: string
+  link_color: string
+  button_color: string
+  button_text_color: string
+  secondary_bg_color: string
+}
+
+export interface TelegramInitData {
+  user?: TelegramUser
+  chat_instance?: string
+  chat_type?: "sender" | "private" | "group" | "supergroup" | "channel"
+  start_param?: string
+  auth_date: number
+  hash: string
 }
 
 declare global {
