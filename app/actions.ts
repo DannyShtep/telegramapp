@@ -1,13 +1,14 @@
+ />
+
+```typescript
 "use server"
 
-// import { revalidatePath } from "next/cache" // Удаляем revalidatePath
 import { createServerComponentClient } from "@/lib/supabase"
-import type { Player, SupabasePlayer } from "@/types/player" // Импортируем интерфейсы
+import type { Player, SupabasePlayer } from "@/types/player"
 
 /** Returns Supabase client. Throws an error if env vars are missing. */
 export async function getSupabase() {
   const client = createServerComponentClient()
-  // createServerComponentClient уже выбрасывает ошибку, если переменные окружения не настроены.
   return client
 }
 
@@ -19,7 +20,6 @@ function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player
     id: supabasePlayer.id,
     telegramId: supabasePlayer.telegram_id,
     username: supabasePlayer.username,
-    // Используем display_name, если есть, иначе username, иначе fallback
     displayName:
       supabasePlayer.display_name ||
       (supabasePlayer.username
@@ -41,14 +41,12 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
   try {
     const supabase = await getSupabase()
 
-    // Попытка получить комнату
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
 
     if (fetchError && fetchError.code === "PGRST116") {
-      // Комната не найдена, создаем новую
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
-        .insert({ id: roomId, status: "waiting", countdown: 20, total_gifts: 0, total_ton: 0 })
+        .insert({ id: roomId, status: "waiting", countdown: 20, total_gifts: 0, total_ton: 0, countdown_end_time: null }) // Добавляем countdown_end_time
         .select()
         .single()
 
@@ -80,11 +78,6 @@ export async function ensureUserOnline(
   try {
     const supabase = await getSupabase()
 
-    // !!! ВАЖНО: Логируем данные пользователя, которые приходят в Server Action !!!
-    console.log(
-      `[Server Action] ensureUserOnline - Received: telegramId=${telegramId}, username=${telegramUsername}, avatar=${avatarUrl}, displayName=${displayName}`,
-    )
-
     const { data: existingPlayer, error: fetchPlayerError } = await supabase
       .from("players")
       .select("*")
@@ -93,19 +86,18 @@ export async function ensureUserOnline(
       .single()
 
     if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      // PGRST116 означает "строки не найдены"
       console.error("Error fetching existing player in ensureUserOnline:", fetchPlayerError)
       return { success: false, error: fetchPlayerError.message }
     }
 
     if (existingPlayer) {
-      // Если игрок уже есть, просто обновляем его данные (на случай смены ника/аватара)
       const { error: updateError } = await supabase
         .from("players")
         .update({
           username: telegramUsername,
-          display_name: displayName, // Сохраняем как display_name
+          display_name: displayName,
           avatar: avatarUrl,
+          last_active_at: new Date().toISOString(), // Обновляем время активности
         })
         .eq("id", existingPlayer.id)
 
@@ -114,19 +106,19 @@ export async function ensureUserOnline(
         return { success: false, error: updateError.message }
       }
     } else {
-      // Если игрока нет, добавляем его как наблюдателя (isParticipant: false)
       const newPlayerData = {
-        id: `online_${telegramId}_${Date.now()}`, // Уникальный ID для онлайн-статуса
+        id: `online_${telegramId}_${Date.now()}`,
         room_id: roomId,
         telegram_id: telegramId,
         username: telegramUsername,
-        display_name: displayName, // Сохраняем как display_name
+        display_name: displayName,
         avatar: avatarUrl,
         gifts: 0,
         ton_value: 0,
-        color: "#4b5563", // Цвет по умолчанию для наблюдателей
+        color: "#4b5563",
         percentage: 0,
-        is_participant: false, // Важно: это наблюдатель
+        is_participant: false,
+        last_active_at: new Date().toISOString(), // Устанавливаем время активности
       }
 
       const { error: insertError } = await supabase.from("players").insert(newPlayerData)
@@ -136,8 +128,6 @@ export async function ensureUserOnline(
         return { success: false, error: insertError.message }
       }
     }
-
-    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
     console.error("Caught exception in ensureUserOnline:", error.message)
@@ -145,159 +135,50 @@ export async function ensureUserOnline(
   }
 }
 
-// Функция для добавления игрока в комнату или обновления его статуса
+// Функция для добавления игрока в комнату или обновления его статуса с использованием RPC
 export async function addPlayerToRoom(roomId: string, playerData: Player) {
-  // Используем Player интерфейс
   try {
     const supabase = await getSupabase()
 
-    // Проверяем, существует ли игрок уже в этой комнате
-    const { data: existingPlayer, error: fetchPlayerError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("telegram_id", playerData.telegramId)
-      .single()
+    const { data, error } = await supabase.rpc("add_player_and_update_room", {
+      p_room_id: roomId,
+      p_telegram_id: playerData.telegramId,
+      p_username: playerData.username,
+      p_display_name: playerData.displayName,
+      p_avatar: playerData.avatar,
+      p_gifts_to_add: playerData.gifts, // Передаем gifts_to_add
+      p_ton_value_to_add: playerData.tonValue, // Передаем ton_value_to_add
+      p_color: playerData.color,
+      p_is_participant: playerData.isParticipant,
+    })
+    .single() // Ожидаем одну строку (обновленную комнату)
 
-    if (fetchPlayerError && fetchPlayerError.code !== "PGRST116") {
-      console.error("Error fetching existing player in addPlayerToRoom:", fetchPlayerError)
-      return { player: null, error: fetchPlayerError.message }
+    if (error) {
+      console.error("Error calling add_player_and_update_room RPC:", error)
+      return { room: null, error: error.message }
     }
 
-    let playerResult
-    if (existingPlayer) {
-      // Обновляем существующего игрока
-      const { data, error } = await supabase
-        .from("players")
-        .update({
-          gifts: playerData.gifts,
-          ton_value: playerData.tonValue,
-          color: playerData.color,
-          percentage: playerData.percentage,
-          is_participant: playerData.isParticipant,
-          display_name: playerData.displayName, // Обновляем на случай изменения ника
-          avatar: playerData.avatar, // Обновляем на случай изменения аватара
-          username: playerData.username,
-        })
-        .eq("id", existingPlayer.id)
-        .select()
-        .single()
-      playerResult = { data, error }
-    } else {
-      // Создаем нового игрока
-      const { data, error } = await supabase
-        .from("players")
-        .insert({
-          id: playerData.id, // <-- ЭТО ВАЖНО: передаем ID
-          room_id: roomId,
-          telegram_id: playerData.telegramId,
-          username: playerData.username,
-          display_name: playerData.displayName, // Сохраняем как display_name
-          avatar: playerData.avatar,
-          gifts: playerData.gifts,
-          ton_value: playerData.tonValue,
-          color: playerData.color,
-          percentage: playerData.percentage,
-          is_participant: playerData.isParticipant,
-        })
-        .select()
-        .single()
-      playerResult = { data, error }
-    }
-
-    if (playerResult.error) {
-      console.error("Error adding/updating player in addPlayerToRoom:", playerResult.error)
-      return { player: null, error: playerResult.error.message }
-    }
-
-    // Преобразуем результат перед возвратом на клиент
-    const clientPlayer = mapSupabasePlayerToClientPlayer(playerResult.data as SupabasePlayer)
-
-    // После успешного добавления/обновления игрока, получаем актуальное состояние комнаты
-    const { data: currentRoom, error: fetchCurrentRoomError } = await supabase
-      .from("rooms")
-      .select("status, countdown")
-      .eq("id", roomId)
-      .single()
-
-    if (fetchCurrentRoomError && fetchCurrentRoomError.code !== "PGRST116") {
-      console.error("Error fetching current room state for countdown logic:", fetchCurrentRoomError)
-      // Продолжаем, но статус/отсчет могут быть основаны на начальных значениях, если получение не удалось
-    }
-
-    const currentRoomStatus = currentRoom?.status || "waiting"
-    const currentRoomCountdown = currentRoom?.countdown || 20 // По умолчанию 20, но будет перезаписано, если уже идет отсчет
-
-    // Получаем всех участников для пересчета общего банка и подарков
-    const { data: allParticipants, error: fetchAllParticipantsError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("is_participant", true)
-
-    if (fetchAllParticipantsError) {
-      console.error("Error fetching all participants:", fetchAllParticipantsError)
-      return { player: clientPlayer, error: null } // Возвращаем игрока, даже если не удалось обновить комнату
-    }
-
-    const totalParticipants = allParticipants.length
-    const newTotalTon = allParticipants.reduce((sum, p) => sum + p.ton_value, 0)
-    const newTotalGifts = allParticipants.reduce((sum, p) => sum + p.gifts, 0)
-
-    let newStatus: "waiting" | "single_player" | "countdown" | "spinning" | "finished" = currentRoomStatus
-    let newCountdown = currentRoomCountdown
-
-    if (totalParticipants >= 2) {
-      // Если 2 или более участников
-      if (currentRoomStatus === "waiting" || currentRoomStatus === "single_player") {
-        // Запускаем отсчет только если комната была в состоянии ожидания или одного игрока
-        newStatus = "countdown"
-        newCountdown = 20 // Начинаем новый отсчет с 20
-      }
-      // Если текущий статус уже "countdown", "spinning" или "finished", не сбрасываем отсчет и не меняем статус здесь.
-    } else if (totalParticipants === 1) {
-      newStatus = "single_player"
-      newCountdown = 20 // Сбрасываем отсчет, если только один игрок и отсчет не идет
-    } else {
-      // totalParticipants === 0
-      newStatus = "waiting"
-      newCountdown = 20 // Сбрасываем отсчет, если нет игроков
-    }
-
-    // Обновляем состояние комнаты
-    const { error: updateRoomError } = await supabase
-      .from("rooms")
-      .update({
-        status: newStatus,
-        countdown: newCountdown,
-        total_gifts: newTotalGifts,
-        total_ton: newTotalTon,
-      })
-      .eq("id", roomId)
-      .select()
-      .single()
-
-    if (updateRoomError) {
-      console.error("Error updating room state:", updateRoomError)
-    }
-
-    // revalidatePath("/") // Удаляем revalidatePath
-    return { player: clientPlayer, error: null }
+    // RPC функция возвращает обновленную комнату, но нам нужен обновленный игрок.
+    // Для этого мы можем просто получить игрока после RPC, или полагаться на Realtime.
+    // Для скорости, полагаемся на Realtime для обновления игрока на клиенте.
+    // Возвращаем обновленную комнату, если это необходимо для клиента.
+    return { room: data, error: null }
   } catch (error: any) {
-    console.error("Caught exception in addPlayerToRoom:", error.message)
-    return { player: null, error: error.message }
+    console.error("Caught exception in addPlayerToRoom RPC:", error.message)
+    return { room: null, error: error.message }
   }
 }
 
-// Функция для обновления состояния комнаты
+// Функция для обновления состояния комнаты (теперь только для countdown_end_time)
 export async function updateRoomState(
   roomId: string,
   newState: {
     status?: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
-    countdown?: number
+    countdown?: number // Это поле будет игнорироваться в пользу countdown_end_time
     winner_telegram_id?: number | null
     total_gifts?: number
     total_ton?: number
+    countdown_end_time?: string | null // Используем это поле
   },
 ) {
   try {
@@ -309,8 +190,6 @@ export async function updateRoomState(
       console.error("Error updating room state:", error)
       return { room: null, error: error.message }
     }
-
-    // revalidatePath("/") // Удаляем revalidatePath
     return { room: data, error: null }
   } catch (error: any) {
     console.error("Caught exception in updateRoomState:", error.message)
@@ -318,42 +197,20 @@ export async function updateRoomState(
   }
 }
 
-// Функция для сброса комнаты
+// Функция для сброса комнаты с использованием RPC
 export async function resetRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
 
-    // Удаляем всех игроков из комнаты
-    const { error: deletePlayersError } = await supabase.from("players").delete().eq("room_id", roomId)
+    const { data, error } = await supabase.rpc("reset_room_function", { p_room_id: roomId }).single()
 
-    if (deletePlayersError) {
-      console.error("Error deleting players in resetRoom:", deletePlayersError)
-      return { success: false, error: deletePlayersError.message }
+    if (error) {
+      console.error("Error calling reset_room_function RPC:", error)
+      return { success: false, error: error.message }
     }
-
-    // Сбрасываем состояние комнаты
-    const { data: room, error: updateRoomError } = await supabase
-      .from("rooms")
-      .update({
-        status: "waiting",
-        countdown: 20,
-        winner_telegram_id: null,
-        total_gifts: 0,
-        total_ton: 0.0,
-      })
-      .eq("id", roomId)
-      .select()
-      .single()
-
-    if (updateRoomError) {
-      console.error("Error resetting room state in resetRoom:", updateRoomError)
-      return { success: false, error: updateRoomError.message }
-    }
-
-    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("Caught exception in resetRoom:", error.message)
+    console.error("Caught exception in resetRoom RPC:", error.message)
     return { success: false, error: error.message }
   }
 }
@@ -367,14 +224,13 @@ export async function getPlayersInRoom(roomId: string) {
       .from("players")
       .select("*")
       .eq("room_id", roomId)
-      .order("created_at", { ascending: true })
+      .order("last_active_at", { ascending: false }) // Сортируем по последней активности
 
     if (error) {
       console.error("Error fetching players in getPlayersInRoom:", error)
       return { players: [], error: error.message }
     }
 
-    // Преобразуем полученные данные в camelCase формат
     const clientPlayers: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
 
     return { players: clientPlayers, error: null }
@@ -401,7 +257,6 @@ export async function getParticipants(roomId: string) {
       return { participants: [], error: error.message }
     }
 
-    // Преобразуем полученные данные в camelCase формат
     const clientParticipants: Player[] = (data as SupabasePlayer[]).map(mapSupabasePlayerToClientPlayer)
 
     return { participants: clientParticipants, error: null }
@@ -411,63 +266,20 @@ export async function getParticipants(roomId: string) {
   }
 }
 
-// Функция для определения победителя и запуска вращения
+// Функция для определения победителя и запуска вращения с использованием RPC
 export async function determineWinnerAndSpin(roomId: string) {
   try {
     const supabase = await getSupabase()
 
-    // Получаем всех участников
-    const { data: participants, error: fetchError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("room_id", roomId)
-      .eq("is_participant", true)
+    const { data, error } = await supabase.rpc("determine_winner_and_spin", { p_room_id: roomId }).single()
 
-    if (fetchError) {
-      console.error("Error fetching participants for winner determination:", fetchError)
-      return { success: false, error: fetchError.message }
+    if (error) {
+      console.error("Error calling determine_winner_and_spin RPC:", error)
+      return { success: false, error: error.message }
     }
-
-    if (!participants || participants.length < 2) {
-      console.error("Not enough participants to determine winner")
-      return { success: false, error: "Not enough participants" }
-    }
-
-    // Вычисляем общий банк
-    const totalTon = participants.reduce((sum, p) => sum + p.ton_value, 0)
-
-    // Определяем победителя на основе вероятности
-    const random = Math.random() * totalTon
-    let currentSum = 0
-    let winner = participants[0]
-
-    for (const participant of participants) {
-      currentSum += participant.ton_value
-      if (random <= currentSum) {
-        winner = participant
-        break
-      }
-    }
-
-    // Обновляем состояние комнаты
-    const { error: updateError } = await supabase
-      .from("rooms")
-      .update({
-        status: "spinning",
-        winner_telegram_id: winner.telegram_id,
-        countdown: 0,
-      })
-      .eq("id", roomId)
-
-    if (updateError) {
-      console.error("Error updating room with winner:", updateError)
-      return { success: false, error: updateError.message }
-    }
-
-    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("Caught exception in determineWinnerAndSpin:", error.message)
+    console.error("Caught exception in determineWinnerAndSpin RPC:", error.message)
     return { success: false, error: error.message }
   }
 }
