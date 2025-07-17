@@ -1,6 +1,6 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
+// import { revalidatePath } from "next/cache" // Удаляем revalidatePath
 import { createServerComponentClient } from "@/lib/supabase"
 import type { Player, SupabasePlayer } from "@/types/player" // Импортируем интерфейсы
 
@@ -137,7 +137,7 @@ export async function ensureUserOnline(
       }
     }
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
     console.error("Caught exception in ensureUserOnline:", error.message)
@@ -213,7 +213,22 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
     // Преобразуем результат перед возвратом на клиент
     const clientPlayer = mapSupabasePlayerToClientPlayer(playerResult.data as SupabasePlayer)
 
-    // После успешного добавления/обновления игрока, сразу обновляем состояние комнаты
+    // После успешного добавления/обновления игрока, получаем актуальное состояние комнаты
+    const { data: currentRoom, error: fetchCurrentRoomError } = await supabase
+      .from("rooms")
+      .select("status, countdown")
+      .eq("id", roomId)
+      .single()
+
+    if (fetchCurrentRoomError && fetchCurrentRoomError.code !== "PGRST116") {
+      console.error("Error fetching current room state for countdown logic:", fetchCurrentRoomError)
+      // Продолжаем, но статус/отсчет могут быть основаны на начальных значениях, если получение не удалось
+    }
+
+    const currentRoomStatus = currentRoom?.status || "waiting"
+    const currentRoomCountdown = currentRoom?.countdown || 20 // По умолчанию 20, но будет перезаписано, если уже идет отсчет
+
+    // Получаем всех участников для пересчета общего банка и подарков
     const { data: allParticipants, error: fetchAllParticipantsError } = await supabase
       .from("players")
       .select("*")
@@ -229,17 +244,24 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
     const newTotalTon = allParticipants.reduce((sum, p) => sum + p.ton_value, 0)
     const newTotalGifts = allParticipants.reduce((sum, p) => sum + p.gifts, 0)
 
-    // Определяем новый статус игры
-    let newStatus: "waiting" | "single_player" | "countdown" | "spinning" | "finished" = "waiting"
-    let newCountdown = 20
+    let newStatus: "waiting" | "single_player" | "countdown" | "spinning" | "finished" = currentRoomStatus
+    let newCountdown = currentRoomCountdown
 
     if (totalParticipants >= 2) {
-      newStatus = "countdown"
-      newCountdown = 20
+      // Если 2 или более участников
+      if (currentRoomStatus === "waiting" || currentRoomStatus === "single_player") {
+        // Запускаем отсчет только если комната была в состоянии ожидания или одного игрока
+        newStatus = "countdown"
+        newCountdown = 20 // Начинаем новый отсчет с 20
+      }
+      // Если текущий статус уже "countdown", "spinning" или "finished", не сбрасываем отсчет и не меняем статус здесь.
     } else if (totalParticipants === 1) {
       newStatus = "single_player"
+      newCountdown = 20 // Сбрасываем отсчет, если только один игрок и отсчет не идет
     } else {
+      // totalParticipants === 0
       newStatus = "waiting"
+      newCountdown = 20 // Сбрасываем отсчет, если нет игроков
     }
 
     // Обновляем состояние комнаты
@@ -252,12 +274,14 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
         total_ton: newTotalTon,
       })
       .eq("id", roomId)
+      .select()
+      .single()
 
     if (updateRoomError) {
       console.error("Error updating room state:", updateRoomError)
     }
 
-    revalidatePath("/") // Перевалидируем путь, чтобы обновить данные на клиенте
+    // revalidatePath("/") // Удаляем revalidatePath
     return { player: clientPlayer, error: null }
   } catch (error: any) {
     console.error("Caught exception in addPlayerToRoom:", error.message)
@@ -286,7 +310,7 @@ export async function updateRoomState(
       return { room: null, error: error.message }
     }
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удаляем revalidatePath
     return { room: data, error: null }
   } catch (error: any) {
     console.error("Caught exception in updateRoomState:", error.message)
@@ -326,7 +350,7 @@ export async function resetRoom(roomId: string) {
       return { success: false, error: updateRoomError.message }
     }
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
     console.error("Caught exception in resetRoom:", error.message)
@@ -440,7 +464,7 @@ export async function determineWinnerAndSpin(roomId: string) {
       return { success: false, error: updateError.message }
     }
 
-    revalidatePath("/")
+    // revalidatePath("/") // Удаляем revalidatePath
     return { success: true, error: null }
   } catch (error: any) {
     console.error("Caught exception in determineWinnerAndSpin:", error.message)
