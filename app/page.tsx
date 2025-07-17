@@ -54,16 +54,18 @@ export default function TelegramRouletteApp() {
   const [spinTrigger, setSpinTrigger] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isCountdownSpinning, setIsCountdownSpinning] = useState(false)
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Функция для обработки ошибок
   const handleError = useCallback(
     (error: string, context: string) => {
       console.error(`[${context}] Error:`, error)
       setError(error)
-      setIsLoading(false) // Важно: сбрасываем isLoading при ошибке
+      setIsLoading(false)
       hapticFeedback.notification("error")
       setTimeout(() => setError(null), 5000)
     },
@@ -88,6 +90,19 @@ export default function TelegramRouletteApp() {
     },
     [getUserDisplayName, getUserPhotoUrl, playerColors],
   )
+
+  // Функция для обновления онлайн-статуса каждую секунду
+  const updateOnlineStatus = useCallback(async () => {
+    if (!user || !roomState) return
+
+    try {
+      const userAvatar = getUserPhotoUrl(user)
+      const userDisplayName = getUserDisplayName(user)
+      await ensureUserOnline(roomState.id, user.id, user.username, userAvatar, userDisplayName)
+    } catch (error: any) {
+      console.warn("Online status update failed:", error.message)
+    }
+  }, [user, roomState, getUserPhotoUrl, getUserDisplayName])
 
   // Инициализация комнаты и подписка на Realtime
   useEffect(() => {
@@ -195,25 +210,23 @@ export default function TelegramRouletteApp() {
     }
   }, [isReady, user, supabase])
 
-  // Heartbeat для поддержания статуса "онлайн"
+  // Обновление онлайн-статуса каждую секунду
   useEffect(() => {
     if (!isReady || !user || !supabase || !roomState) return
 
-    const sendHeartbeat = async () => {
-      try {
-        const userAvatar = getUserPhotoUrl(user)
-        const userDisplayName = getUserDisplayName(user)
-        await ensureUserOnline(roomState.id, user.id, user.username, userAvatar, userDisplayName)
-      } catch (error: any) {
-        console.warn("Heartbeat failed:", error.message)
+    // Первоначальное обновление
+    updateOnlineStatus()
+
+    // Устанавливаем интервал для обновления каждую секунду
+    onlineUpdateIntervalRef.current = setInterval(updateOnlineStatus, 1000)
+
+    return () => {
+      if (onlineUpdateIntervalRef.current) {
+        clearInterval(onlineUpdateIntervalRef.current)
+        onlineUpdateIntervalRef.current = null
       }
     }
-
-    sendHeartbeat()
-    const heartbeatInterval = setInterval(sendHeartbeat, 30 * 1000)
-
-    return () => clearInterval(heartbeatInterval)
-  }, [isReady, user, supabase, roomState])
+  }, [isReady, user, supabase, roomState, updateOnlineStatus])
 
   // Логика игры и таймера
   useEffect(() => {
@@ -233,7 +246,34 @@ export default function TelegramRouletteApp() {
       setParticipantsForGame(updatedParticipantsForGame)
     }
 
-    // Логика таймера - запускается только в состоянии countdown
+    // Логика анимации колеса во время обратного отсчета
+    if (roomState.status === "countdown") {
+      if (!isCountdownSpinning) {
+        setIsCountdownSpinning(true)
+        // Запускаем медленное вращение колеса во время обратного отсчета
+        const countdownSpinInterval = setInterval(() => {
+          setRotation((prev) => prev + 2) // Медленное вращение на 2 градуса каждые 50мс
+        }, 50)
+
+        // Сохраняем интервал для очистки
+        const cleanup = () => {
+          clearInterval(countdownSpinInterval)
+          setIsCountdownSpinning(false)
+        }
+
+        // Очищаем при смене статуса
+        const statusCheckInterval = setInterval(() => {
+          if (roomState.status !== "countdown") {
+            cleanup()
+            clearInterval(statusCheckInterval)
+          }
+        }, 100)
+      }
+    } else {
+      setIsCountdownSpinning(false)
+    }
+
+    // Логика таймера - запускается только в состоянии countdown с правильным отсчетом 20 секунд
     if (roomState.status === "countdown" && roomState.countdown > 0) {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
@@ -249,6 +289,7 @@ export default function TelegramRouletteApp() {
           if (latestRoom.countdown <= 0) {
             clearInterval(countdownIntervalRef.current!)
             countdownIntervalRef.current = null
+            setIsCountdownSpinning(false)
             hapticFeedback.impact("heavy")
 
             // Запускаем определение победителя и вращение
@@ -267,6 +308,7 @@ export default function TelegramRouletteApp() {
           handleError(error.message, "Countdown Timer")
           clearInterval(countdownIntervalRef.current!)
           countdownIntervalRef.current = null
+          setIsCountdownSpinning(false)
         }
       }, 1000)
     } else if (countdownIntervalRef.current) {
@@ -274,8 +316,9 @@ export default function TelegramRouletteApp() {
       countdownIntervalRef.current = null
     }
 
-    // Обработка вращения колеса
+    // Обработка финального вращения колеса
     if (roomState.status === "spinning" && spinTrigger === 0) {
+      setIsCountdownSpinning(false)
       const randomRotation = 5400 + Math.random() * 1440
       setRotation((prev) => prev + randomRotation)
       setSpinTrigger(1)
@@ -292,10 +335,12 @@ export default function TelegramRouletteApp() {
               setShowWinnerModal(false)
               await resetRoom(defaultRoomId)
               setSpinTrigger(0)
+              setRotation(0) // Сбрасываем вращение
             }, 4000)
           } else {
             await resetRoom(defaultRoomId)
             setSpinTrigger(0)
+            setRotation(0) // Сбрасываем вращение
           }
         } catch (error: any) {
           handleError(error.message, "Spin Completion")
@@ -311,7 +356,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, participantsForGame, spinTrigger])
+  }, [roomState, participantsForGame, spinTrigger, isCountdownSpinning])
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -377,7 +422,6 @@ export default function TelegramRouletteApp() {
         }
 
         console.log("[Client] Player added successfully")
-        // Не нужно вручную обновлять состояние комнаты - это делает server action
         // Realtime подписки автоматически обновят UI
       } catch (error: any) {
         console.error("[Client] Exception in handleAddPlayer:", error)
@@ -479,7 +523,7 @@ export default function TelegramRouletteApp() {
 
       {/* Верхние элементы UI */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
-        {/* Счетчик игроков в комнате */}
+        {/* Счетчик игроков в комнате - ТОЛЬКО СПИСОК ОНЛАЙН ИГРОКОВ */}
         <Dialog>
           <DialogTrigger asChild>
             <Button
@@ -520,7 +564,7 @@ export default function TelegramRouletteApp() {
                       />
                       <div className="flex-1">
                         <span className="text-white font-medium">{player.displayName}</span>
-                        {player.isParticipant && <div className="text-xs text-gray-400">Участвует в игре</div>}
+                        {player.isParticipant && <div className="text-xs text-green-400">Участвует в игре</div>}
                       </div>
                     </div>
                   ))}
@@ -576,7 +620,7 @@ export default function TelegramRouletteApp() {
           {roomState.status === "waiting" ? (
             <div className="w-full h-full bg-gray-600 rounded-full relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
-                <span className="text-gray-300 text-sm font-medium">Ожидание</span>
+                <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
               </div>
             </div>
           ) : participants.length === 1 && roomState.status === "single_player" ? (
@@ -589,7 +633,7 @@ export default function TelegramRouletteApp() {
                 />
               </div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
-                <span className="text-gray-300 text-sm font-medium">Ожидание</span>
+                <span className="text-gray-300 text-sm font-medium">Ждем второго игрока</span>
               </div>
             </div>
           ) : (
@@ -643,13 +687,10 @@ export default function TelegramRouletteApp() {
 
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
                 {roomState.status === "countdown" ? (
-                  <span className="text-green-400 text-lg font-mono font-bold">
-                    {String(Math.floor(roomState.countdown / 60)).padStart(2, "0")}:
-                    {String(roomState.countdown % 60).padStart(2, "0")}
-                  </span>
+                  <span className="text-green-400 text-lg font-mono font-bold">{roomState.countdown}</span>
                 ) : (
                   <span className="text-gray-300 text-sm font-medium">
-                    {roomState.status === "spinning" ? "Крутим!" : "Ожидание"}
+                    {roomState.status === "spinning" ? "Крутим!" : "Готов к игре"}
                   </span>
                 )}
               </div>
@@ -713,42 +754,54 @@ export default function TelegramRouletteApp() {
         ))}
       </div>
 
-      {/* Список участников игры */}
+      {/* Список участников игры с их ставками */}
       <div className="px-4 mb-6 relative z-10 mobile-safe-area">
         {participants.length === 0 ? (
           <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
             <p className="text-gray-400">Нет участников в текущей игре</p>
-            <p className="text-gray-500 text-sm mt-2">Добавьте гифт, чтобы начать игру!</p>
+            <p className="text-gray-500 text-sm mt-2">Добавьте ТОН, чтобы начать игру!</p>
           </Card>
         ) : (
-          participants.map((player) => (
-            <div key={player.id} className="mb-3">
-              <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm transition-all duration-200 hover:bg-black/70">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={player.avatar || "/placeholder.svg"}
-                      alt="Player"
-                      className="w-8 h-8 rounded-full object-cover"
-                      style={{ border: `2px solid ${player.color}` }}
-                    />
-                    <div>
-                      <span className="text-white font-medium">{player.displayName}</span>
-                      {player.gifts > 1 && <div className="text-xs text-gray-400">{player.gifts} подарков</div>}
+          <>
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-bold text-white">Участники игры</h3>
+              <p className="text-sm text-gray-400">Ставки обновляются в реальном времени</p>
+            </div>
+            {participants.map((player) => (
+              <div key={player.id} className="mb-3">
+                <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm transition-all duration-200 hover:bg-black/70">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={player.avatar || "/placeholder.svg"}
+                        alt="Player"
+                        className="w-10 h-10 rounded-full object-cover"
+                        style={{ border: `3px solid ${player.color}` }}
+                      />
+                      <div>
+                        <span className="text-white font-medium">{player.displayName}</span>
+                        {player.gifts > 1 && <div className="text-xs text-gray-400">{player.gifts} подарков</div>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="text-right">
+                        <div className="bg-white text-black px-3 py-1 rounded-full text-sm font-bold">
+                          {player.percentage.toFixed(player.percentage < 10 ? 2 : 0)}%
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">шанс победы</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                          {player.tonValue.toFixed(1)} ТОН
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">ставка</div>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <span className="bg-white text-black px-3 py-1 rounded-full text-sm font-medium">
-                      {player.percentage.toFixed(player.percentage < 10 ? 2 : 0)}%
-                    </span>
-                    <span className="bg-gray-600 text-white px-3 py-1 rounded-full text-sm">
-                      {player.tonValue.toFixed(1)} ТОН
-                    </span>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          ))
+                </Card>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
@@ -762,7 +815,7 @@ export default function TelegramRouletteApp() {
               className="absolute top-2 right-2 text-gray-400 hover:text-white touch-manipulation"
               onClick={() => setShowWinnerModal(false)}
             >
-              <X className="w-4 w-4" />
+              <X className="w-4 h-4" />
             </Button>
             <div className="text-4xl mb-4 animate-bounce">🎉</div>
             <h2 className="text-2xl font-bold text-white mb-2">Поздравляем!</h2>
