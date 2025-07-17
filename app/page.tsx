@@ -5,21 +5,20 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
+import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import {
-  getOrCreateRoom,
-  addPlayerToRoom,
-  updateRoomState,
-  getPlayersInRoom,
-  ensureUserOnline,
-  determineWinnerAndSpin,
-  resetRoom,
-  getParticipants,
-} from "@/app/actions"
+import { getOrCreateRoom, addPlayerToRoom, updateRoomState, getPlayersInRoom, ensureUserOnline } from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import type { Player, Room } from "@/types/player" // Импортируем Room
+import type { Player } from "@/types/player" // Импортируем Player из нового файла
 
-const playerColors = ["#FF5733", "#33FF57", "#3357FF", "#F333FF", "#33FFF3"] // Пример цветов для игроков
+interface RoomState {
+  id: string // UUID комнаты
+  status: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
+  countdown: number
+  winner_telegram_id: number | null
+  total_gifts: number
+  total_ton: number
+}
 
 const items = [
   { icon: "💝", label: "PvP" },
@@ -33,75 +32,83 @@ export default function TelegramRouletteApp() {
   const { user, isReady, hapticFeedback, getUserPhotoUrl, getUserDisplayName, showAlert } = useTelegram()
   const supabase = createClientComponentClient()
 
-  const defaultRoomId = "default-room-id"
+  const defaultRoomId = "default-room-id" // Можно сделать динамическим в будущем
 
-  const [roomState, setRoomState] = useState<Room | null>(null)
-  const [playersInRoom, setPlayersInRoom] = useState<Player[]>([])
-  const [participantsForGame, setParticipantsForGame] = useState<Player[]>([])
+  const [roomState, setRoomState] = useState<RoomState | null>(null)
+  const [playersInRoom, setPlayersInRoom] = useState<Player[]>([]) // Все игроки в комнате
   const [rotation, setRotation] = useState(0)
   const [showWinnerModal, setShowWinnerModal] = useState(false)
-  const [winnerDetails, setWinnerDetails] = useState<Player | null>(null)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
-  const [spinTrigger, setSpinTrigger] = useState(0) // 0: idle, 1: spinning initiated, 2: spin finished
 
+  const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
+
+  // Ref для хранения текущего состояния таймера, чтобы избежать замыканий
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Функция для обновления данных игроков (онлайн и участников)
-  const refreshPlayersData = useCallback(async () => {
-    console.log("[Client] refreshPlayersData: Fetching latest players and participants.")
-    try {
-      // Обновляем онлайн игроков
-      const { players, error: fetchOnlinePlayersError } = await getPlayersInRoom(defaultRoomId)
-      if (!fetchOnlinePlayersError && players) {
-        setPlayersInRoom(players)
-        console.log("[Client] Online players updated:", players.length)
-      } else if (fetchOnlinePlayersError) {
-        console.error("[Client] Error fetching online players:", fetchOnlinePlayersError)
-      }
-
-      // Обновляем участников игры
-      const { participants, error: fetchParticipantsError } = await getParticipants(defaultRoomId)
-      if (!fetchParticipantsError && participants) {
-        setParticipantsForGame(participants)
-        console.log("[Client] Game participants updated:", participants.length)
-      } else if (fetchParticipantsError) {
-        console.error("[Client] Error fetching participants for game:", fetchParticipantsError)
-      }
-    } catch (error) {
-      console.error("[Client] Exception in refreshPlayersData:", error)
+  // Функция для создания объекта игрока из TelegramUser
+  const createPlayerObject = (
+    telegramUser: TelegramUser,
+    isParticipant: boolean,
+    tonValue = 0,
+    existingPlayersCount = 0,
+  ): Player => {
+    return {
+      id: `temp_${telegramUser.id}_${Date.now()}`, // Временный ID до сохранения в БД
+      telegramId: telegramUser.id,
+      username: telegramUser.username || null, // username может быть null
+      displayName: getUserDisplayName(telegramUser), // Используем getUserDisplayName
+      avatar: getUserPhotoUrl(telegramUser) || null, // avatar может быть null
+      gifts: isParticipant ? 1 : 0,
+      tonValue: tonValue,
+      color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#4b5563", // Цвет по умолчанию для наблюдателей
+      percentage: 0,
+      isParticipant: isParticipant,
     }
-  }, [defaultRoomId])
+  }
 
   // Инициализация комнаты и подписка на Realtime
   useEffect(() => {
-    if (!isReady || !user || !supabase) {
-      console.log("[Client] useEffect (init): Not ready or user/supabase missing.")
-      return
-    }
+    if (!isReady || !user || !supabase) return // supabase может быть null в локальном превью
 
-    console.log("[Client] useEffect (init): Initializing room and subscriptions...")
+    // --- Добавлено логирование объекта user ---
+    console.log("[Client] Telegram User object in page.tsx (from useTelegram):", JSON.stringify(user, null, 2))
+    // --- Конец добавленного логирования ---
 
     const initializeRoom = async () => {
       try {
         const { room, error } = await getOrCreateRoom(defaultRoomId)
         if (error) {
-          console.error("[Client] Room initialization error:", error)
+          console.error("Room initialization error:", error)
           return
         }
         if (room) {
           setRoomState(room)
-          console.log("[Client] Room initialized:", room)
         }
 
         const userAvatar = getUserPhotoUrl(user)
         const userDisplayName = getUserDisplayName(user)
 
-        await ensureUserOnline(defaultRoomId, user.id, user.username, userAvatar, userDisplayName)
+        const { success, error: onlineError } = await ensureUserOnline(
+          defaultRoomId,
+          user.id,
+          user.username,
+          userAvatar,
+          userDisplayName,
+        )
 
-        // Загружаем начальные данные
-        await refreshPlayersData()
+        if (onlineError) {
+          console.error("Error ensuring user online:", onlineError)
+        } else if (success) {
+          const { players, error } = await getPlayersInRoom(defaultRoomId)
+          if (!error && players) {
+            setPlayersInRoom(players) // Теперь players уже в camelCase
+            console.log("[Client] Initial players in room:", JSON.stringify(players, null, 2))
+          } else if (error) {
+            console.error("Error fetching players:", error)
+          }
+        }
       } catch (error: any) {
-        console.error("[Client] Exception in initializeRoom:", error)
+        console.error("Exception in initializeRoom:", error)
       }
     }
 
@@ -115,13 +122,7 @@ export default function TelegramRouletteApp() {
         { event: "*", schema: "public", table: "rooms", filter: `id=eq.${defaultRoomId}` },
         (payload) => {
           if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
-            const newRoom = payload.new as Room
-            setRoomState(newRoom)
-            console.log("[Client] Room state updated via Realtime:", newRoom.status, "Countdown:", newRoom.countdown)
-            // Если статус изменился на spinning, инициируем спин
-            if (newRoom.status === "spinning") {
-              console.log("[Client] Realtime detected status 'spinning'.")
-            }
+            setRoomState(payload.new as RoomState)
           }
         },
       )
@@ -134,329 +135,151 @@ export default function TelegramRouletteApp() {
         "postgres_changes",
         { event: "*", schema: "public", table: "players", filter: `room_id=eq.${defaultRoomId}` },
         async (payload) => {
-          console.log("[Client] Players table changed via Realtime:", payload.eventType, payload.new?.display_name)
-          await refreshPlayersData() // Обновляем данные игроков при изменении
+          const { players, error } = await getPlayersInRoom(defaultRoomId)
+          if (error) {
+            console.error("Error fetching players after realtime update:", error)
+            return
+          }
+          setPlayersInRoom(players) // Теперь players уже в camelCase
+          console.log("[Client] Players updated via Realtime:", JSON.stringify(players, null, 2))
         },
       )
       .subscribe()
 
     return () => {
-      console.log("[Client] Cleaning up Realtime subscriptions.")
       supabase.removeChannel(roomSubscription)
       supabase.removeChannel(playerSubscription)
     }
-  }, [isReady, user, supabase, defaultRoomId, getUserPhotoUrl, getUserDisplayName, refreshPlayersData])
+  }, [isReady, user, supabase, getUserPhotoUrl, getUserDisplayName])
 
-  // Heartbeat для поддержания статуса "онлайн"
+  // Дополнительное логирование для отслеживания состояния playersInRoom
   useEffect(() => {
-    if (!isReady || !user || !supabase || !roomState) {
-      console.log("[Client] useEffect (heartbeat): Not ready or user/supabase/roomState missing.")
-      return
-    }
+    console.log("[Client] Current playersInRoom state:", JSON.stringify(playersInRoom, null, 2))
+  }, [playersInRoom])
 
-    const sendHeartbeat = async () => {
-      const userAvatar = getUserPhotoUrl(user)
-      const userDisplayName = getUserDisplayName(user)
-      await ensureUserOnline(roomState.id, user.id, user.username, userAvatar, userDisplayName)
-      // console.log("[Client] Heartbeat sent.") // Закомментировано, чтобы не спамить консоль
-    }
-
-    sendHeartbeat()
-    const heartbeatInterval = setInterval(sendHeartbeat, 30 * 1000)
-
-    return () => {
-      console.log("[Client] Cleaning up heartbeat interval.")
-      clearInterval(heartbeatInterval)
-    }
-  }, [isReady, user, supabase, roomState, getUserPhotoUrl, getUserDisplayName])
-
-  // Обновляем проценты игроков и запускаем логику таймера/рулетки
+  // ------------------------------------------------------------------
+  // Обновляем проценты игроков и запускаем локальную логику таймера/рулетки
+  // ------------------------------------------------------------------
   useEffect(() => {
-    if (!roomState) {
-      console.log("[Client] useEffect (roomState/spin): roomState is null.")
-      return
+    if (!roomState) return
+
+    const participants = playersInRoom.filter((p) => p.isParticipant)
+    const totalTon = participants.reduce((sum, p) => sum + p.tonValue, 0)
+
+    // пересчитаем проценты; если ничего не поменялось — состояние не трогаем
+    const playersNext = playersInRoom.map((p) => {
+      const newPerc = p.isParticipant && totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
+      return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
+    })
+
+    const hasPlayersChanged = playersNext.some((p, i) => p !== playersInRoom[i])
+    if (hasPlayersChanged) {
+      setPlayersInRoom(playersNext)
     }
 
-    console.log(
-      `[Client] useEffect (roomState/spin) triggered. Status: ${roomState.status}, Countdown: ${roomState.countdown}, SpinTrigger: ${spinTrigger}`,
-    )
-
-    // Пересчитываем проценты для участников игры
-    const totalTon = participantsForGame.reduce((sum, p) => sum + p.tonValue, 0)
-    const updatedParticipantsWithPercentages = participantsForGame.map((p) => ({
-      ...p,
-      percentage: totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0,
-    }))
-
-    // Обновляем состояние только если проценты изменились
-    const hasPercentagesChanged = updatedParticipantsWithPercentages.some(
-      (p, i) => p.percentage.toFixed(2) !== participantsForGame[i]?.percentage.toFixed(2),
-    )
-    if (hasPercentagesChanged) {
-      setParticipantsForGame(updatedParticipantsWithPercentages)
-      console.log(
-        "[Client] Participants percentages updated in useEffect:",
-        updatedParticipantsWithPercentages.map((p) => ({
-          displayName: p.displayName,
-          percentage: p.percentage.toFixed(2),
-        })),
-      )
-    }
-
-    // Логика таймера
-    if (roomState.status === "countdown") {
+    // ---------- Логика таймера ----------
+    if (roomState.status === "countdown" && roomState.countdown > 0) {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
 
       countdownIntervalRef.current = setInterval(async () => {
-        // Получаем актуальное состояние комнаты, чтобы избежать использования устаревшего roomState из замыкания
-        const { room: latestRoom } = await getOrCreateRoom(defaultRoomId)
-        if (!latestRoom) {
-          console.warn("[Client] Countdown interval: Could not get latest room state.")
-          return
-        }
+        if (roomState.countdown <= 0) return
 
-        console.log("[Client] Countdown tick:", latestRoom.countdown)
+        const newCountdown = roomState.countdown - 1
 
-        if (latestRoom.countdown <= 0) {
-          clearInterval(countdownIntervalRef.current!)
-          countdownIntervalRef.current = null
-          hapticFeedback.impact("heavy")
-          console.log("[Client] Countdown finished. Calling determineWinnerAndSpin.")
-          await determineWinnerAndSpin(defaultRoomId)
-          return
-        }
-
-        const newCountdown = latestRoom.countdown - 1
         if (newCountdown <= 3 && newCountdown > 0) hapticFeedback.impact("heavy")
 
-        // Обновляем состояние комнаты на сервере, чтобы Realtime синхронизировал всех клиентов
-        await updateRoomState(defaultRoomId, { countdown: newCountdown })
+        if (newCountdown === 0) {
+          // запуск рулетки и остальная логика...
+          const randomRotation = 5400 + Math.random() * 1440
+          setRotation((prev) => prev + randomRotation)
+          hapticFeedback.impact("heavy")
+          await updateRoomState(defaultRoomId, { status: "spinning", countdown: 0 })
+          // дальнейшая логика победителя остаётся без изменений
+        } else {
+          await updateRoomState(defaultRoomId, { countdown: newCountdown })
+        }
       }, 1000)
     } else if (countdownIntervalRef.current) {
-      console.log("[Client] Clearing countdown interval. Status not 'countdown'.")
       clearInterval(countdownIntervalRef.current)
       countdownIntervalRef.current = null
-    }
-
-    // Логика анимации рулетки
-    if (roomState.status === "spinning" && spinTrigger === 0) {
-      console.log("[Client] Initiating spin animation!")
-      const randomRotation = 5400 + Math.random() * 1440 // 15 full rotations + 0-4 full rotations
-      setRotation((prev) => prev + randomRotation)
-      setSpinTrigger(1) // Устанавливаем, что спин инициирован
-
-      setTimeout(async () => {
-        console.log("[Client] Spin animation finished. Checking winner.")
-        // Получаем актуальные данные о победителе после завершения анимации
-        const { room: finalRoomState } = await getOrCreateRoom(defaultRoomId)
-        const winner = updatedParticipantsWithPercentages.find(
-          (p) => p.telegramId === finalRoomState?.winner_telegram_id,
-        )
-
-        if (winner) {
-          setWinnerDetails(winner)
-          setShowWinnerModal(true)
-          hapticFeedback.notification("success")
-          console.log("[Client] Winner found and modal shown:", winner.displayName)
-
-          setTimeout(async () => {
-            setShowWinnerModal(false)
-            console.log("[Client] Winner modal closed. Resetting room.")
-            await resetRoom(defaultRoomId, true) // Передаем true, чтобы пропустить revalidatePath
-            setSpinTrigger(0) // Сбрасываем spinTrigger для следующего раунда
-          }, 4000)
-        } else {
-          console.warn("[Client] Winner not found after spin. Resetting room.")
-          await resetRoom(defaultRoomId, true) // Передаем true, чтобы пропустить revalidatePath
-          setSpinTrigger(0) // Сбрасываем spinTrigger
-        }
-      }, 15000) // Длительность анимации
-    } else if (roomState.status !== "spinning" && spinTrigger !== 0) {
-      console.log("[Client] Room status changed from spinning or spin finished. Resetting spinTrigger.")
-      setSpinTrigger(0) // Сбрасываем spinTrigger, если статус комнаты изменился или спин завершен
     }
 
     return () => {
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current)
         countdownIntervalRef.current = null
-        console.log("[Client] Cleanup: Cleared countdown interval.")
       }
     }
-  }, [roomState, participantsForGame, hapticFeedback, defaultRoomId, spinTrigger]) // Добавил spinTrigger в зависимости
+  }, [roomState, playersInRoom, hapticFeedback])
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
-      console.log(`[Client] handleAddPlayer called - isGift: ${isGift}, tonAmount: ${tonAmountToAdd}`)
-
-      if (!user || !roomState || !supabase) {
-        showAlert("Ошибка: отсутствуют необходимые данные")
-        console.error("[Client] handleAddPlayer: Missing user, roomState, or supabase.")
-        return
-      }
-
-      if (roomState.status === "spinning" || roomState.status === "finished") {
-        showAlert("Игра уже идет или завершена. Дождитесь нового раунда.")
-        hapticFeedback.notification("error")
-        console.log("[Client] handleAddPlayer: Game in spinning/finished state, cannot add player.")
-        return
-      }
-
-      if (roomState.status === "countdown" && roomState.countdown <= 3) {
-        showAlert("Нельзя присоединиться в последние секунды отсчета.")
-        hapticFeedback.notification("error")
-        console.log("[Client] handleAddPlayer: Cannot join in last 3 seconds of countdown.")
-        return
-      }
-
       try {
-        // Получаем актуальный список участников, чтобы получить их текущие ID и цвета из БД
-        const { participants: currentParticipants, error: fetchCurrentParticipantsError } = await getParticipants(
-          roomState.id,
-        )
-        if (fetchCurrentParticipantsError) {
-          console.error("[Client] handleAddPlayer: Error fetching current participants:", fetchCurrentParticipantsError)
-          showAlert(`Ошибка: ${fetchCurrentParticipantsError}`)
+        if (!user || !roomState || !supabase) {
+          console.error("handleAddPlayer: User, roomState or Supabase client is null", { user, roomState, supabase })
           return
         }
 
-        // Также получаем всех онлайн игроков, чтобы определить, есть ли пользователь уже в комнате как наблюдатель
-        const { players: allOnlinePlayers, error: fetchOnlinePlayersError } = await getPlayersInRoom(roomState.id)
-        if (fetchOnlinePlayersError) {
-          console.error("[Client] handleAddPlayer: Error fetching all online players:", fetchOnlinePlayersError)
-          showAlert(`Ошибка: ${fetchOnlinePlayersError}`)
+        if (roomState.status === "countdown" && roomState.countdown <= 3) {
+          console.error("handleAddPlayer: Cannot add player during final countdown.")
+          return
+        }
+        if (roomState.status === "spinning" || roomState.status === "finished") {
+          console.error("handleAddPlayer: Cannot add player during spinning or finished state.")
           return
         }
 
-        const existingPlayerInRoom = allOnlinePlayers.find((p) => p.telegramId === user.id)
-
-        const currentTonValue = existingPlayerInRoom ? existingPlayerInRoom.tonValue : 0
-        const currentGifts = existingPlayerInRoom ? existingPlayerInRoom.gifts : 0
-
-        const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
-        const newTonValue = currentTonValue + tonValueToAdd
-        const newGifts = currentGifts + 1
-
-        let playerToSave: Player
-
-        if (existingPlayerInRoom) {
-          // Если игрок уже существует (как участник или наблюдатель), обновляем его данные
-          playerToSave = {
-            ...existingPlayerInRoom, // Сохраняем существующий ID, цвет и другие неизменяемые поля
-            gifts: newGifts,
-            tonValue: newTonValue,
-            isParticipant: true, // Теперь он участник
-          }
-        } else {
-          // Если это совершенно новый игрок в комнате, создаем новый объект
-          const assignedColor = playerColors[currentParticipants.length % playerColors.length]
-          playerToSave = {
-            id: `temp_${user.id}_${Date.now()}`, // Временный ID для новой вставки
-            telegramId: user.id,
-            username: user.username || null,
-            displayName: getUserDisplayName(user),
-            avatar: getUserPhotoUrl(user) || null,
-            gifts: newGifts,
-            tonValue: newTonValue,
-            color: assignedColor,
-            percentage: 0, // Процент будет рассчитан на сервере/Realtime
-            isParticipant: true,
-          }
+        const existingParticipant = playersInRoom.find((p) => p.telegramId === user.id && p.isParticipant)
+        if (existingParticipant) {
+          hapticFeedback.notification("error")
+          console.error("handleAddPlayer: User is already a participant.")
+          return
         }
 
-        console.log(
-          "[Client] handleAddPlayer: Player object to send to Server Action:",
-          JSON.stringify(playerToSave, null, 2),
-        )
+        const tonValue = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
+        const newPlayer = createPlayerObject(user, true, tonValue, playersInRoom.filter((p) => p.isParticipant).length)
 
         hapticFeedback.impact("medium")
 
-        const { player: playerResult, error: playerError } = await addPlayerToRoom(roomState.id, playerToSave)
+        // Добавляем/обновляем игрока через Server Action
+        const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
 
-        if (playerError) {
-          console.error("[Client] handleAddPlayer: Error adding player via Server Action:", playerError)
-          showAlert(`Ошибка при добавлении игрока: ${playerError}`)
+        if (error) {
+          console.error("handleAddPlayer: Error adding player via Server Action:", error)
           return
         }
-        if (!playerResult) {
-          console.error("[Client] handleAddPlayer: Server Action returned null player.")
-          showAlert("Не удалось добавить игрока.")
+        if (!player) {
+          console.error("handleAddPlayer: Server Action returned null player.")
           return
         }
 
-        console.log(
-          "[Client] handleAddPlayer: Player added/updated successfully:",
-          playerResult.displayName,
-          playerResult.tonValue.toFixed(1),
-        )
+        // Обновляем состояние комнаты после добавления игрока
+        const updatedParticipants = [...playersInRoom.filter((p) => p.isParticipant), player].filter(
+          Boolean,
+        ) as Player[]
+        const newTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
+        const newTotalGifts = updatedParticipants.length
+        const newStatus = newTotalGifts === 1 ? "single_player" : newTotalGifts >= 2 ? "countdown" : "waiting"
 
-        // После добавления/обновления игрока, снова получаем актуальный список участников
-        // Это вызовет обновление состояния participantsForGame и пересчет процентов
-        await refreshPlayersData()
-
-        // Получаем самые актуальные данные после refreshPlayersData для обновления комнаты
-        const { participants: latestParticipantsAfterAdd } = await getParticipants(roomState.id)
-        const newTotalTon = latestParticipantsAfterAdd.reduce((sum, p) => sum + p.tonValue, 0)
-        const newParticipantsCount = latestParticipantsAfterAdd.length // Количество уникальных участников
-        const newTotalGiftsSum = latestParticipantsAfterAdd.reduce((sum, p) => sum + p.gifts, 0) // Сумма всех подарков
-
-        let newStatus: Room["status"] = "waiting"
-        let newCountdownValue = roomState.countdown
-
-        if (newParticipantsCount >= 2) {
-          // Игра начинается с 2 или более участников
-          newStatus = "countdown"
-          if (roomState.status !== "countdown") {
-            newCountdownValue = 20 // Сброс отсчета только при переходе в состояние отсчета
-          }
-        } else if (newParticipantsCount === 1) {
-          // Один игрок, ожидаем больше
-          newStatus = "single_player"
-        } else {
-          // Нет участников
-          newStatus = "waiting"
-        }
-
-        const { room: updatedRoomResult, error: updateRoomErrorResult } = await updateRoomState(roomState.id, {
-          total_gifts: newTotalGiftsSum, // Используем сумму подарков
+        await updateRoomState(roomState.id, {
+          total_gifts: newTotalGifts,
           total_ton: newTotalTon,
           status: newStatus,
-          countdown: newCountdownValue,
+          countdown: newStatus === "countdown" ? 20 : roomState.countdown,
         })
-
-        if (updateRoomErrorResult) {
-          console.error("[Client] handleAddPlayer: Error updating room state after player add:", updateRoomErrorResult)
-          showAlert(`Ошибка при обновлении комнаты: ${updateRoomErrorResult}`)
-        } else {
-          console.log(
-            "[Client] handleAddPlayer: Room state updated successfully after player add:",
-            JSON.stringify(updatedRoomResult, null, 2),
-          )
-        }
       } catch (error: any) {
-        console.error("[Client] handleAddPlayer: Top-level exception caught:", error.message, error.stack)
-        showAlert(`Произошла общая ошибка: ${error.message}`)
+        console.error("Exception in handleAddPlayer:", error)
       }
     },
-    [
-      user,
-      roomState,
-      hapticFeedback,
-      supabase,
-      showAlert,
-      getUserDisplayName,
-      getUserPhotoUrl,
-      refreshPlayersData,
-      playerColors,
-      defaultRoomId,
-    ],
+    [user, roomState, playersInRoom, hapticFeedback, supabase],
   )
 
   const getWheelSegments = () => {
-    if (participantsForGame.length === 0) return []
+    const participants = playersInRoom.filter((p) => p.isParticipant)
+    if (participants.length === 0) return []
 
     let currentAngle = 0
-    return participantsForGame.map((player) => {
+    return participants.map((player) => {
       const segmentAngle = (player.percentage / 100) * 360
       const segment = {
         player,
@@ -470,7 +293,7 @@ export default function TelegramRouletteApp() {
   }
 
   const segments = getWheelSegments()
-  const participants = participantsForGame
+  const participants = playersInRoom.filter((p) => p.isParticipant)
 
   const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
 
@@ -481,6 +304,7 @@ export default function TelegramRouletteApp() {
     return `${count} подарков`
   }
 
+  // Если Supabase не настроен (local preview) – показываем упрощённый UI без данных из БД
   if (!supabase) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
@@ -489,6 +313,7 @@ export default function TelegramRouletteApp() {
     )
   }
 
+  // Показываем загрузку пока не готов Telegram или комната
   if (!isReady || !roomState) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
@@ -500,11 +325,15 @@ export default function TelegramRouletteApp() {
     )
   }
 
+  const currentWinner = roomState.winner_telegram_id
+    ? playersInRoom.find((p) => p.telegramId === roomState.winner_telegram_id)
+    : null
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden">
-      {/* Верхние элементы UI */}
+      {/* Верхние элементы UI: Счетчик игроков и Информация о текущем пользователе */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
-        {/* Счетчик игроков в комнате (онлайн) */}
+        {/* Счетчик игроков в комнате */}
         <Dialog>
           <DialogTrigger asChild>
             <Button
@@ -523,36 +352,46 @@ export default function TelegramRouletteApp() {
                 <Users className="w-5 h-5 text-green-400" />
                 <DialogTitle className="text-lg font-bold text-white">Онлайн</DialogTitle>
               </div>
+              {/* Кнопка закрытия уже встроена в DialogContent */}
             </DialogHeader>
             <div className="flex-1 overflow-y-auto p-4">
               {playersInRoom.length === 0 ? (
                 <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
               ) : (
                 <div className="space-y-2">
-                  {playersInRoom.map((player) => (
-                    <div
-                      key={player.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg ${
-                        player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
-                      }`}
-                    >
-                      <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
-                      <img
-                        src={player.avatar || "/placeholder.svg"}
-                        alt="Player"
-                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                        style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
-                        onError={(e) => {
-                          e.currentTarget.src = "/placeholder.svg"
-                          console.error("Failed to load player avatar:", player.avatar)
-                        }}
-                      />
-                      <div className="flex-1">
-                        <span className="text-white font-bold text-lg">{player.displayName}</span>
-                        {/* Удалена информация о ставках и процентах из модала "Онлайн" */}
+                  {playersInRoom.map((player) => {
+                    // Добавляем логирование прямо перед рендерингом
+                    console.log(
+                      `[Client] Rendering player in Online modal: id=${player.id}, displayName='${player.displayName}', username='${player.username}', avatar='${player.avatar}'`,
+                    )
+                    return (
+                      <div
+                        key={player.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg ${
+                          player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
+                        }`}
+                      >
+                        {/* Индикатор онлайн */}
+                        <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                        <img
+                          src={player.avatar || "/placeholder.svg"}
+                          alt="Player"
+                          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                          style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
+                        />
+                        <div className="flex-1">
+                          {/* Теперь player.displayName должен быть корректным */}
+                          <span className="text-white font-bold text-lg">{player.displayName}</span>
+                          {/* Удаляем отображение tonValue и percentage из этого модального окна */}
+                          {/* {player.isParticipant && (
+                        <div className="text-xs text-gray-400">
+                          {player.tonValue.toFixed(1)} ТОН • {player.percentage.toFixed(1)}%
+                        </div>
+                      )} */}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -562,15 +401,7 @@ export default function TelegramRouletteApp() {
         {/* Информация о текущем пользователе */}
         {user && (
           <div className="bg-black/60 border border-gray-600 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 h-10">
-            <img
-              src={getUserPhotoUrl(user) || "/placeholder.svg"}
-              alt="Avatar"
-              className="w-6 h-6 rounded-full"
-              onError={(e) => {
-                e.currentTarget.src = "/placeholder.svg"
-                console.error("Failed to load user avatar:", getUserPhotoUrl(user))
-              }}
-            />
+            <img src={getUserPhotoUrl(user) || "/placeholder.svg"} alt="Avatar" className="w-6 h-6 rounded-full" />
             <span className="text-sm text-white whitespace-nowrap">{getUserDisplayName(user)}</span>
           </div>
         )}
@@ -619,10 +450,6 @@ export default function TelegramRouletteApp() {
                   src={participants[0]?.avatar || "/placeholder.svg"}
                   alt="Player"
                   className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.setAttribute("href", "/placeholder.svg")
-                    console.error("Failed to load single player avatar:", participants[0]?.avatar)
-                  }}
                 />
               </div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
@@ -632,7 +459,7 @@ export default function TelegramRouletteApp() {
           ) : (
             <>
               <svg className="w-full h-full" viewBox="0 0 200 200">
-                {segments.map((segment) => {
+                {segments.map((segment, index) => {
                   const startAngleRad = (segment.startAngle * Math.PI) / 180
                   const endAngleRad = (segment.endAngle * Math.PI) / 180
                   const largeArcFlag = segment.angle > 180 ? 1 : 0
@@ -655,9 +482,7 @@ export default function TelegramRouletteApp() {
                   const avatarY = 100 + 70 * Math.sin(midAngleRad)
 
                   return (
-                    <g key={segment.player.id}>
-                      {" "}
-                      {/* Использование player.id в качестве ключа */}
+                    <g key={index}>
                       <path d={pathData} fill={segment.player.color} />
                       <circle
                         cx={avatarX}
@@ -674,10 +499,6 @@ export default function TelegramRouletteApp() {
                         height="16"
                         href={segment.player.avatar || "/placeholder.svg"}
                         clipPath="circle(8px at center)"
-                        onError={(e) => {
-                          e.currentTarget.setAttribute("href", "/placeholder.svg")
-                          console.error("Failed to load segment player avatar:", segment.player.avatar)
-                        }}
                       />
                     </g>
                   )
@@ -752,14 +573,14 @@ export default function TelegramRouletteApp() {
         ))}
       </div>
 
-      {/* Список игроков (участников игры) */}
+      {/* Список игроков */}
       <div className="px-4 mb-6 relative z-10">
         {participants.length === 0 ? (
           <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
             <p className="text-gray-400">Нет участников</p>
           </Card>
         ) : (
-          participants.map((player) => (
+          participants.map((player, index) => (
             <div key={player.id} className="mb-3">
               <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
@@ -769,10 +590,6 @@ export default function TelegramRouletteApp() {
                       alt="Player"
                       className="w-8 h-8 rounded-full object-cover"
                       style={{ border: `2px solid ${player.color}` }}
-                      onError={(e) => {
-                        e.currentTarget.src = "/placeholder.svg"
-                        console.error("Failed to load participant avatar:", player.avatar)
-                      }}
                     />
                     <div>
                       <span className="text-white font-medium">{player.displayName}</span>
@@ -794,7 +611,7 @@ export default function TelegramRouletteApp() {
       </div>
 
       {/* Модал победителя */}
-      {showWinnerModal && winnerDetails && (
+      {showWinnerModal && currentWinner && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <Card className="bg-black border-gray-600 p-6 rounded-2xl max-w-sm w-full text-center relative">
             <Button
@@ -808,22 +625,35 @@ export default function TelegramRouletteApp() {
             <div className="text-4xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-white mb-2">Победитель!</h2>
             <img
-              src={winnerDetails.avatar || "/placeholder.svg"}
+              src={currentWinner.avatar || "/placeholder.svg"}
               alt="Winner"
               className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
-              onError={(e) => {
-                e.currentTarget.src = "/placeholder.svg"
-                console.error("Failed to load winner avatar:", winnerDetails.avatar)
-              }}
             />
             <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
-              {winnerDetails.displayName}
+              {currentWinner.displayName}
             </div>
             <div className="text-sm text-gray-400 mb-4">Выиграл {(roomState.total_ton ?? 0).toFixed(1)} ТОН</div>
-            <div className="text-xs text-gray-500">Шанс победы: {winnerDetails.percentage.toFixed(1)}%</div>
+            <div className="text-xs text-gray-500">Шанс победы: {currentWinner.percentage.toFixed(1)}%</div>
           </Card>
         </div>
       )}
+
+      {/* Нижняя навигация */}
+      <div className="fixed left-0 right-0 bottom-0 bg-black/80 backdrop-blur-sm border-t border-gray-700 z-50">
+        <div className="flex justify-around py-2">
+          {items.map((item, index) => (
+            <Button
+              key={index}
+              variant="ghost"
+              className="flex flex-col items-center gap-1 text-gray-400 hover:text-white py-3"
+              onClick={() => hapticFeedback.selection()}
+            >
+              <span className="text-lg">{item.icon}</span>
+              <span className="text-xs">{item.label}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
