@@ -63,8 +63,9 @@ export default function TelegramRouletteApp() {
     (error: string, context: string) => {
       console.error(`[${context}] Error:`, error)
       setError(error)
+      setIsLoading(false) // Важно: сбрасываем isLoading при ошибке
       hapticFeedback.notification("error")
-      setTimeout(() => setError(null), 5000) // Автоматически скрыть ошибку через 5 секунд
+      setTimeout(() => setError(null), 5000)
     },
     [hapticFeedback],
   )
@@ -182,7 +183,7 @@ export default function TelegramRouletteApp() {
               setParticipantsForGame(participantsResult.participants)
             }
           } catch (error: any) {
-            handleError(error.message, "Realtime Update")
+            console.error("Realtime Update Error:", error.message)
           }
         },
       )
@@ -314,7 +315,12 @@ export default function TelegramRouletteApp() {
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
-      if (isLoading) return
+      console.log("[Client] handleAddPlayer called", { isGift, tonAmountToAdd, isLoading })
+
+      if (isLoading) {
+        console.log("[Client] Already loading, skipping")
+        return
+      }
 
       try {
         if (!user || !roomState || !supabase) {
@@ -334,7 +340,9 @@ export default function TelegramRouletteApp() {
           return
         }
 
+        console.log("[Client] Setting loading to true")
         setIsLoading(true)
+        setError(null)
 
         // Получаем текущего участника, если он есть
         const existingParticipant = participantsForGame.find((p) => p.telegramId === user.id)
@@ -348,10 +356,15 @@ export default function TelegramRouletteApp() {
         const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
         newPlayer.gifts = newGifts
 
+        console.log("[Client] Created player object:", newPlayer)
+
         hapticFeedback.impact("medium")
 
         // Добавляем игрока - server action сам обновит состояние комнаты
+        console.log("[Client] Calling addPlayerToRoom")
         const { player, error } = await addPlayerToRoom(roomState.id, newPlayer)
+
+        console.log("[Client] addPlayerToRoom result:", { player, error })
 
         if (error) {
           handleError(error, "Add Player to Room")
@@ -363,15 +376,28 @@ export default function TelegramRouletteApp() {
           return
         }
 
+        console.log("[Client] Player added successfully")
         // Не нужно вручную обновлять состояние комнаты - это делает server action
         // Realtime подписки автоматически обновят UI
       } catch (error: any) {
+        console.error("[Client] Exception in handleAddPlayer:", error)
         handleError(error.message, "Add Player Exception")
       } finally {
+        console.log("[Client] Setting loading to false")
         setIsLoading(false)
       }
     },
-    [user, roomState, supabase, isLoading, hapticFeedback, showAlert, createPlayerObject, participantsForGame],
+    [
+      user,
+      roomState,
+      supabase,
+      isLoading,
+      hapticFeedback,
+      showAlert,
+      createPlayerObject,
+      participantsForGame,
+      handleError,
+    ],
   )
 
   const getWheelSegments = useCallback(() => {
@@ -417,8 +443,8 @@ export default function TelegramRouletteApp() {
     )
   }
 
-  // Показываем загрузку
-  if (!isReady || !roomState || isLoading) {
+  // Показываем загрузку только при первоначальной инициализации
+  if (!isReady || !roomState) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
         <div className="text-center">
@@ -437,6 +463,16 @@ export default function TelegramRouletteApp() {
           <Alert className="bg-red-900/90 border-red-700 backdrop-blur-sm">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="text-white">{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {/* Индикатор загрузки для действий */}
+      {isLoading && (
+        <div className="fixed top-20 left-4 right-4 z-50">
+          <Alert className="bg-blue-900/90 border-blue-700 backdrop-blur-sm">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+            <AlertDescription className="text-white ml-2">Обработка запроса...</AlertDescription>
           </Alert>
         </div>
       )}
@@ -726,7 +762,7 @@ export default function TelegramRouletteApp() {
               className="absolute top-2 right-2 text-gray-400 hover:text-white touch-manipulation"
               onClick={() => setShowWinnerModal(false)}
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 w-4" />
             </Button>
             <div className="text-4xl mb-4 animate-bounce">🎉</div>
             <h2 className="text-2xl font-bold text-white mb-2">Поздравляем!</h2>
