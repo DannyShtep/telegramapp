@@ -279,14 +279,10 @@ export default function TelegramRouletteApp() {
 
       countdownIntervalRef.current = setInterval(async () => {
         try {
-          // Получаем актуальное состояние комнаты
-          const { room: latestRoom, error: fetchRoomError } = await getOrCreateRoom(defaultRoomId)
-          if (fetchRoomError || !latestRoom) {
-            handleError(fetchRoomError || "Failed to fetch room", "Countdown Timer")
-            return
-          }
+          // Используем текущее значение roomState.countdown, которое обновляется через Realtime
+          const currentCountdownValue = roomState.countdown // Захватываем значение из текущего roomState
 
-          if (latestRoom.countdown <= 0) {
+          if (currentCountdownValue <= 0) {
             clearInterval(countdownIntervalRef.current!)
             countdownIntervalRef.current = null
             setIsCountdownSpinning(false)
@@ -297,7 +293,7 @@ export default function TelegramRouletteApp() {
             return
           }
 
-          const newCountdown = latestRoom.countdown - 1
+          const newCountdown = currentCountdownValue - 1
           if (newCountdown <= 3 && newCountdown > 0) {
             hapticFeedback.impact("heavy")
           }
@@ -356,7 +352,7 @@ export default function TelegramRouletteApp() {
         countdownIntervalRef.current = null
       }
     }
-  }, [roomState, participantsForGame, spinTrigger, isCountdownSpinning])
+  }, [roomState, participantsForGame, spinTrigger, isCountdownSpinning, defaultRoomId, hapticFeedback, handleError])
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
