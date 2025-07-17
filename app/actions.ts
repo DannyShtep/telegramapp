@@ -16,7 +16,7 @@ function mapSupabasePlayerToClientPlayer(supabasePlayer: SupabasePlayer): Player
   return {
     id: supabasePlayer.id,
     telegramId: supabasePlayer.telegram_id,
-    username: supabasePlayer.username,
+    username: supabasePlayer.username || null,
     displayName:
       supabasePlayer.display_name ||
       (supabasePlayer.username
@@ -164,7 +164,6 @@ export async function addPlayerToRoom(roomId: string, playerData: Player) {
     }
 
     // RPC функция возвращает обновленную комнату, но нам нужен обновленный игрок.
-    // Для этого мы можем просто получить игрока после RPC, или полагаться на Realtime.
     // Для скорости, полагаемся на Realtime для обновления игрока на клиенте.
     // Возвращаем обновленную комнату, если это необходимо для клиента.
     return { room: data, error: null }
@@ -276,6 +275,7 @@ export async function determineWinnerAndSpin(roomId: string) {
   try {
     const supabase = await getSupabase()
 
+    // Используем новую версию RPC
     const { data, error } = await supabase.rpc("determine_winner_and_spin", { p_room_id: roomId }).single()
 
     if (error) {
