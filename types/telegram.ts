@@ -4,6 +4,7 @@ export interface TelegramUser {
   last_name?: string
   username?: string
   language_code?: string
+  is_bot?: boolean
   is_premium?: boolean
   photo_url?: string
 }
