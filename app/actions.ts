@@ -248,10 +248,14 @@ export async function determineWinnerAndSpin(roomId: string) {
 export async function getPlayersInRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
+    // Определяем порог активности: игроки, активные в последние 15 секунд
+    const fifteenSecondsAgo = new Date(Date.now() - 15 * 1000).toISOString()
+
     const { data, error } = await supabase
       .from("players")
       .select("*")
       .eq("room_id", roomId)
+      .gte("last_active_at", fifteenSecondsAgo) // Фильтруем по последней активности
       .order("last_active_at", { ascending: false }) // Сортируем по последней активности
     if (error) {
       console.error("Error fetching players in room:", error)
