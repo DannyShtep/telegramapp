@@ -114,6 +114,7 @@ export default function RouletteGameClient({
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const playersListUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null) // New ref for players list update
 
   // Ref для хранения актуального roomState без добавления его в зависимости useEffect
   const roomStateRef = useRef(roomState)
@@ -154,7 +155,7 @@ export default function RouletteGameClient({
     [getUserDisplayName, getUserPhotoUrl],
   )
 
-  // Функция для обновления онлайн-статуса
+  // Функция для обновления онлайн-статуса текущего пользователя
   const updateOnlineStatus = useCallback(async () => {
     if (!user || !defaultRoomId) return
 
@@ -167,22 +168,54 @@ export default function RouletteGameClient({
     }
   }, [user, defaultRoomId, getUserPhotoUrl, getUserDisplayName])
 
-  // Отдельный useEffect для интервала обновления онлайн-статуса
+  // Отдельный useEffect для интервала обновления онлайн-статуса текущего пользователя
   useEffect(() => {
     if (!isReady || !user || !defaultRoomId) return
 
-    console.log("Setting up online status interval.")
+    console.log("Setting up online status interval for current user.")
     updateOnlineStatus() // Первый вызов при монтировании
-    onlineUpdateIntervalRef.current = setInterval(updateOnlineStatus, 1000)
+    onlineUpdateIntervalRef.current = setInterval(updateOnlineStatus, 1000) // Обновляем каждую секунду
 
     return () => {
-      console.log("Cleaning up online status interval.")
+      console.log("Cleaning up online status interval for current user.")
       if (onlineUpdateIntervalRef.current) {
         clearInterval(onlineUpdateIntervalRef.current)
         onlineUpdateIntervalRef.current = null
       }
     }
   }, [isReady, user, defaultRoomId, updateOnlineStatus])
+
+  // НОВЫЙ useEffect для периодического получения списка онлайн-игроков
+  useEffect(() => {
+    if (!isReady || !defaultRoomId) return
+
+    const fetchAndSetPlayers = async () => {
+      try {
+        const { players, error: fetchError } = await getPlayersInRoom(defaultRoomId)
+        if (fetchError) {
+          console.error("Failed to fetch online players list:", fetchError)
+          // Опционально можно показать тост или сообщение об ошибке
+        } else {
+          setPlayersInRoom(players)
+        }
+      } catch (err: any) {
+        console.error("Exception fetching online players list:", err.message)
+      }
+    }
+
+    // Первоначальная загрузка при монтировании компонента
+    fetchAndSetPlayers()
+
+    // Устанавливаем интервал для периодического обновления (каждые 5 секунд)
+    playersListUpdateIntervalRef.current = setInterval(fetchAndSetPlayers, 5000) // 5 секунд
+
+    return () => {
+      if (playersListUpdateIntervalRef.current) {
+        clearInterval(playersListUpdateIntervalRef.current)
+        playersListUpdateIntervalRef.current = null
+      }
+    }
+  }, [isReady, defaultRoomId]) // Зависимости: isReady и defaultRoomId
 
   // Подписка на Realtime изменения комнаты и игроков (теперь с минимальными зависимостями)
   useEffect(() => {
@@ -214,19 +247,16 @@ export default function RouletteGameClient({
         async (payload) => {
           console.log("Realtime: Player update received:", payload.eventType, payload.new || payload.old)
           try {
-            const [playersResult, participantsResult] = await Promise.all([
-              getPlayersInRoom(defaultRoomId),
-              getParticipants(defaultRoomId),
-            ])
-
-            if (playersResult.players) {
-              setPlayersInRoom(playersResult.players)
-            }
-            if (participantsResult.participants) {
-              setParticipantsForGame(participantsResult.participants)
+            // Realtime для игроков теперь используется только для обновления участников игры,
+            // а полный список онлайн-игроков обновляется отдельным интервалом.
+            const { participants, error: participantsError } = await getParticipants(defaultRoomId)
+            if (participantsError) {
+              console.error("Realtime Player Update Error fetching participants:", participantsError)
+            } else {
+              setParticipantsForGame(participants)
             }
           } catch (err: any) {
-            console.error("Realtime Player Update Error:", err.message)
+            console.error("Realtime Player Update Exception:", err.message)
           }
         },
       )
@@ -483,7 +513,6 @@ export default function RouletteGameClient({
       user,
       roomState,
       supabase,
-      // isAddingPlayer, // Removed from dependencies
       hapticFeedback,
       showAlert,
       createBasePlayerObject,
