@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Plus, X, Eye, Users, AlertCircle } from "lucide-react"
+import { Plus, X, Eye, AlertCircle } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
@@ -15,7 +15,6 @@ import {
   resetRoom,
   getParticipants,
 } from "@/app/actions"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { Player } from "@/types/player"
 
@@ -267,7 +266,7 @@ export default function RouletteGameClient({
       supabase.removeChannel(roomSubscription)
       supabase.removeChannel(playerSubscription)
     }
-  }, [isReady, supabase, defaultRoomId])
+  }, [isReady, supabase, defaultRoomId]) // Зависимости: isReady и defaultRoomId
 
   // Calculate participants with percentages using useMemo
   const participantsWithPercentages = useMemo(() => {
@@ -568,6 +567,16 @@ export default function RouletteGameClient({
     )
   }
 
+  // Добавьте этот useEffect где-нибудь после других useEffect'ов
+  useEffect(() => {
+    if (roomState?.status === "waiting" || roomState?.status === "single_player") {
+      if (isAddingPlayer) {
+        console.log("Room status is waiting/single_player, resetting isAddingPlayer to false as a failsafe.")
+        setIsAddingPlayer(false)
+      }
+    }
+  }, [roomState?.status, isAddingPlayer]) // Зависим от isAddingPlayer, чтобы сработать, если он true
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden touch-manipulation">
       {/* Error notification */}
@@ -583,55 +592,15 @@ export default function RouletteGameClient({
       {/* Top UI elements */}
       <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center gap-2">
         {/* Player count in room - ONLY ONLINE PLAYERS LIST */}
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
-              onClick={() => hapticFeedback.selectionChanged()}
-            >
-              <Eye className="w-4 h-4 mr-2" />
-              <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-black/90 border-gray-600 rounded-2xl max-w-md w-full max-h-[70vh] flex flex-col">
-            <DialogHeader className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0 flex-row">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-green-400" />
-                <DialogTitle className="text-lg font-bold text-white">Онлайн игроки</DialogTitle>
-              </div>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto p-4">
-              {playersInRoom.length === 0 ? (
-                <p className="text-gray-400 text-center py-4">В комнате пока нет игроков.</p>
-              ) : (
-                <div className="space-y-2">
-                  {playersInRoom.map((player) => (
-                    <div
-                      key={player.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                        player.isParticipant ? "bg-gray-800/50" : "bg-gray-800/30"
-                      }`}
-                    >
-                      <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0 animate-pulse"></div>
-                      <img
-                        src={player.avatar || "/placeholder.svg?height=32&width=32"}
-                        alt={player.displayName || "Player avatar"}
-                        className="w-8 h-8 rounded-full object-cover"
-                        style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
-                      />
-                      <div className="flex-1">
-                        <span className="text-white font-medium">{player.displayName}</span>
-                        {player.isParticipant && <div className="text-xs text-green-400">Участвует в игре</div>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
+          onClick={() => hapticFeedback.selectionChanged()}
+        >
+          <Eye className="w-4 h-4 mr-2" />
+          <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
+        </Button>
 
         {/* Current user info */}
         {user && (
@@ -766,12 +735,17 @@ export default function RouletteGameClient({
         <Button
           className="flex-1 bg-green-500 hover:bg-green-600 text-black font-medium py-3 rounded-xl disabled:bg-gray-600 disabled:text-gray-400 touch-manipulation transition-all duration-200"
           onClick={() => handleAddPlayer(true)}
-          disabled={
-            isAddingPlayer || // Используем новое состояние
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && countdownSeconds <= 3)
-          }
+          disabled={(() => {
+            const isDisabled =
+              isAddingPlayer ||
+              roomState.status === "spinning" ||
+              roomState.status === "finished" ||
+              (roomState.status === "countdown" && countdownSeconds <= 3)
+            console.log(
+              `[Button 1] Disabled: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
+            )
+            return isDisabled
+          })()}
         >
           <Plus className="w-5 h-5 mr-2" />
           {isAddingPlayer ? "Добавляем..." : "Добавить гифт"}
@@ -787,12 +761,17 @@ export default function RouletteGameClient({
             handleAddPlayer(false, displayedTonAmount)
             setDisplayedTonAmount(Math.floor(Math.random() * 20 + 5))
           }}
-          disabled={
-            isAddingPlayer || // Используем новое состояние
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && countdownSeconds <= 3)
-          }
+          disabled={(() => {
+            const isDisabled =
+              isAddingPlayer ||
+              roomState.status === "spinning" ||
+              roomState.status === "finished" ||
+              (roomState.status === "countdown" && countdownSeconds <= 3)
+            console.log(
+              `[Button 2] Disabled: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
+            )
+            return isDisabled
+          })()}
         >
           <span className="text-2xl mr-2 flex-shrink-0">🎁</span>
           <span className={`whitespace-nowrap ${tonButtonFontSizeClass}`}>
