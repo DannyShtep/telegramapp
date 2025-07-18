@@ -206,15 +206,17 @@ export async function resetRoom(roomId: string) {
   try {
     const supabase = await getSupabase()
 
+    console.log(`[Server Action] Calling reset_room_function RPC for room: ${roomId}`)
     const { data, error } = await supabase.rpc("reset_room_function", { p_room_id: roomId }).single()
 
     if (error) {
-      console.error("Error calling reset_room_function RPC:", error)
+      console.error("[Server Action] Error calling reset_room_function RPC:", error)
       return { success: false, error: error.message }
     }
+    console.log("[Server Action] reset_room_function RPC successful. Data:", data)
     return { success: true, error: null }
   } catch (error: any) {
-    console.error("Caught exception in resetRoom RPC:", error.message)
+    console.error("[Server Action] Caught exception in resetRoom RPC:", error.message)
     return { success: false, error: error.message }
   }
 }
