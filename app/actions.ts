@@ -41,6 +41,7 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
     const { data: room, error: fetchError } = await supabase.from("rooms").select("*").eq("id", roomId).single()
 
     if (fetchError && fetchError.code === "PGRST116") {
+      // Комната не найдена, создаем новую
       const { data: newRoom, error: createError } = await supabase
         .from("rooms")
         .insert({
@@ -50,7 +51,8 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
           total_gifts: 0,
           total_ton: 0,
           countdown_end_time: null,
-        }) // Добавляем countdown_end_time
+          winner_telegram_id: null, // Убедимся, что winner_telegram_id тоже инициализирован
+        })
         .select()
         .single()
 
@@ -71,7 +73,7 @@ export async function getOrCreateRoom(roomId = "default-room-id") {
   }
 }
 
-// Новая функция для обеспечения присутствия пользователя в списке онлайн
+// Функция для обеспечения присутствия пользователя в списке онлайн
 export async function ensureUserOnline(
   roomId: string,
   telegramId: number,
@@ -141,88 +143,6 @@ export async function ensureUserOnline(
   }
 }
 
-// Функция для добавления игрока в комнату или обновления его статуса с использованием RPC
-export async function addPlayerToRoom(roomId: string, playerData: Player) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data, error } = await supabase
-      .rpc("add_player_and_update_room", {
-        p_room_id: roomId,
-        p_telegram_id: playerData.telegramId,
-        p_username: playerData.username,
-        p_display_name: playerData.displayName,
-        p_avatar: playerData.avatar,
-        p_gifts_to_add: playerData.gifts, // Передаем gifts_to_add
-        p_ton_value_to_add: playerData.tonValue, // Передаем ton_value_to_add
-        p_color: playerData.color,
-        p_is_participant: playerData.isParticipant,
-      })
-      .single() // Ожидаем одну строку (обновленную комнату)
-
-    if (error) {
-      console.error("Error calling add_player_and_update_room RPC:", error)
-      return { room: null, error: error.message }
-    }
-
-    // RPC функция возвращает обновленную комнату, но нам нужен обновленный игрок.
-    // Для скорости, полагаемся на Realtime для обновления игрока на клиенте.
-    // Возвращаем обновленную комнату, если это необходимо для клиента.
-    return { room: data, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in addPlayerToRoom RPC:", error.message)
-    return { room: null, error: error.message }
-  }
-}
-
-// Функция для обновления состояния комнаты (теперь только для countdown_end_time)
-export async function updateRoomState(
-  roomId: string,
-  newState: {
-    status?: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
-    countdown?: number // Это поле будет игнорироваться в пользу countdown_end_time
-    winner_telegram_id?: number | null
-    total_gifts?: number
-    total_ton?: number
-    countdown_end_time?: string | null // Используем это поле
-  },
-) {
-  try {
-    const supabase = await getSupabase()
-
-    const { data, error } = await supabase.from("rooms").update(newState).eq("id", roomId).select().single()
-
-    if (error) {
-      console.error("Error updating room state:", error)
-      return { room: null, error: error.message }
-    }
-    return { room: data, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in updateRoomState:", error.message)
-    return { room: null, error: error.message }
-  }
-}
-
-// Функция для сброса комнаты с использованием RPC
-export async function resetRoom(roomId: string) {
-  try {
-    const supabase = await getSupabase()
-
-    console.log(`[Server Action] Calling reset_room_function RPC for room: ${roomId}`)
-    const { data, error } = await supabase.rpc("reset_room_function", { p_room_id: roomId }).single()
-
-    if (error) {
-      console.error("[Server Action] Error calling reset_room_function RPC:", error)
-      return { success: false, error: error.message }
-    }
-    console.log("[Server Action] reset_room_function RPC successful. Data:", data)
-    return { success: true, error: null }
-  } catch (error: any) {
-    console.error("[Server Action] Caught exception in resetRoom RPC:", error.message)
-    return { success: false, error: error.message }
-  }
-}
-
 // Функция для получения всех игроков в комнате
 export async function getPlayersInRoom(roomId: string) {
   try {
@@ -274,21 +194,39 @@ export async function getParticipants(roomId: string) {
   }
 }
 
-// Функция для определения победителя и запуска вращения с использованием RPC
+// --- Ниже заглушки для функций, которые ранее использовали RPC ---
+// Вы можете реализовать их заново, когда будете готовы.
+
+export async function addPlayerToRoom(roomId: string, playerData: Player) {
+  console.log("addPlayerToRoom (stub): This function is currently a placeholder.")
+  console.log("Room ID:", roomId, "Player Data:", playerData)
+  return { room: null, error: "Function not implemented in this version." }
+}
+
+export async function updateRoomState(
+  roomId: string,
+  newState: {
+    status?: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
+    countdown?: number
+    winner_telegram_id?: number | null
+    total_gifts?: number
+    total_ton?: number
+    countdown_end_time?: string | null
+  },
+) {
+  console.log("updateRoomState (stub): This function is currently a placeholder.")
+  console.log("Room ID:", roomId, "New State:", newState)
+  return { room: null, error: "Function not implemented in this version." }
+}
+
+export async function resetRoom(roomId: string) {
+  console.log("resetRoom (stub): This function is currently a placeholder.")
+  console.log("Room ID:", roomId)
+  return { success: false, error: "Function not implemented in this version." }
+}
+
 export async function determineWinnerAndSpin(roomId: string) {
-  try {
-    const supabase = await getSupabase()
-
-    // Используем новую версию RPC
-    const { data, error } = await supabase.rpc("determine_winner_and_spin", { p_room_id: roomId }).single()
-
-    if (error) {
-      console.error("Error calling determine_winner_and_spin RPC:", error)
-      return { success: false, error: error.message }
-    }
-    return { success: true, error: null }
-  } catch (error: any) {
-    console.error("Caught exception in determineWinnerAndSpin RPC:", error.message)
-    return { success: false, error: error.message }
-  }
+  console.log("determineWinnerAndSpin (stub): This function is currently a placeholder.")
+  console.log("Room ID:", roomId)
+  return { success: false, error: "Function not implemented in this version." }
 }
