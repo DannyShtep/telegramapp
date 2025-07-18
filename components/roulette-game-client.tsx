@@ -7,14 +7,7 @@ import { Plus, X, Eye, Users, AlertCircle, RotateCcw } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
-import {
-  addPlayerToRoom,
-  getPlayersInRoom,
-  ensureUserOnline,
-  determineWinnerAndSpin,
-  resetRoom,
-  getParticipants,
-} from "@/app/actions"
+import { getPlayersInRoom, ensureUserOnline, getParticipants } from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { Player } from "@/types/player"
@@ -59,18 +52,15 @@ export default function RouletteGameClient({
   const [roomState, setRoomState] = useState<RoomState | null>(initialRoomState)
   const [playersInRoom, setPlayersInRoom] = useState<Player[]>(initialPlayersInRoom)
   const [participantsForGame, setParticipantsForGame] = useState<Player[]>(initialParticipantsForGame)
-  const [rotation, setRotation] = useState(0)
+  const [rotation, setRotation] = useState(0) // Оставим для базовой анимации, если захотите
   const [showWinnerModal, setShowWinnerModal] = useState(false)
   const [winnerDetails, setWinnerDetails] = useState<Player | null>(null)
   const [displayedTonAmount, setDisplayedTonAmount] = useState(Math.floor(Math.random() * 20 + 5))
-  const [spinTrigger, setSpinTrigger] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(initialError) // Используем initialError для начального состояния
-  const [countdownSeconds, setCountdownSeconds] = useState(0) // Локальное состояние для отображения таймера
+  const [error, setError] = useState<string | null>(initialError)
+  const [countdownSeconds, setCountdownSeconds] = useState(0)
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const countdownSpinIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Функция для обработки ошибок
@@ -178,249 +168,58 @@ export default function RouletteGameClient({
         onlineUpdateIntervalRef.current = null
       }
     }
-  }, [isReady, user, supabase, defaultRoomId, updateOnlineStatus, roomState]) // Added roomState to dependency array to ensure re-subscription if roomState changes significantly (though unlikely for ID)
+  }, [isReady, user, supabase, defaultRoomId, updateOnlineStatus, roomState])
 
-  // Логика таймера и анимации колеса
-  useEffect(() => {
-    if (!roomState) return
-
-    console.log(
-      "Game logic useEffect triggered. Current roomState:",
-      roomState.status,
-      "Countdown end:",
-      roomState.countdown_end_time,
-    )
-
-    const currentParticipants = participantsForGame
-    const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
-
-    // Пересчитываем проценты
-    const updatedParticipantsForGame = currentParticipants.map((p) => {
-      const newPerc = totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
-      return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
-    })
-
-    const hasParticipantsChanged = updatedParticipantsForGame.some((p, i) => p !== participantsForGame[i])
-    if (hasParticipantsChanged) {
-      setParticipantsForGame(updatedParticipantsForGame)
-    }
-
-    // --- Countdown animation logic ---
-    if (roomState.status === "countdown") {
-      if (!countdownSpinIntervalRef.current) {
-        console.log("Starting countdown spin animation.")
-        countdownSpinIntervalRef.current = setInterval(() => {
-          setRotation((prev) => prev + 2)
-        }, 50)
-      }
-    } else {
-      // If status is not countdown, stop the animation
-      if (countdownSpinIntervalRef.current) {
-        console.log("Stopping countdown spin animation.")
-        clearInterval(countdownSpinIntervalRef.current)
-        countdownSpinIntervalRef.current = null
-      }
-    }
-
-    // --- Timer logic: client-side countdown ---
-    if (roomState.status === "countdown" && roomState.countdown_end_time) {
-      const endTime = new Date(roomState.countdown_end_time).getTime()
-
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current) // Clear existing interval to prevent duplicates
-
-      countdownIntervalRef.current = setInterval(async () => {
-        const now = Date.now()
-        const remainingSeconds = Math.max(0, Math.floor((endTime - now) / 1000))
-        setCountdownSeconds(remainingSeconds)
-        console.log("Countdown:", remainingSeconds)
-
-        if (remainingSeconds <= 0) {
-          clearInterval(countdownIntervalRef.current!)
-          countdownIntervalRef.current = null
-          hapticFeedback.impactOccurred("heavy")
-
-          // This is the critical call: trigger winner determination
-          console.log("Countdown reached 0, calling determineWinnerAndSpin...")
-          await determineWinnerAndSpin(defaultRoomId)
-        } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
-          hapticFeedback.impactOccurred("heavy")
-        }
-      }, 1000)
-    } else {
-      setCountdownSeconds(0) // Reset timer if not in countdown mode
-      if (countdownIntervalRef.current) {
-        console.log("Clearing countdown timer.")
-        clearInterval(countdownIntervalRef.current)
-        countdownIntervalRef.current = null
-      }
-    }
-
-    // --- Handle final wheel spin and winner announcement ---
-    if (roomState.status === "spinning" && spinTrigger === 0) {
-      console.log("Room status is spinning, initiating client-side spin animation.")
-      const randomRotation = 5400 + Math.random() * 1440 // Ensure enough rotations
-      setRotation((prev) => prev + randomRotation)
-      setSpinTrigger(1) // Mark that spin has been triggered
-
-      setTimeout(async () => {
-        console.log("Spin animation complete, checking winner and resetting room.")
-        try {
-          const winner = updatedParticipantsForGame.find((p) => p.telegramId === roomState.winner_telegram_id)
-          if (winner) {
-            setWinnerDetails(winner)
-            setShowWinnerModal(true)
-            hapticFeedback.notificationOccurred("success")
-
-            setTimeout(async () => {
-              setShowWinnerModal(false)
-              console.log("Winner modal closed, resetting room...")
-              await resetRoom(defaultRoomId)
-              setSpinTrigger(0) // Reset spin trigger
-              setRotation(0) // Reset rotation for next round
-            }, 4000) // Duration for winner modal display
-          } else {
-            console.log("No winner found or winner_telegram_id is null, resetting room.")
-            await resetRoom(defaultRoomId)
-            setSpinTrigger(0) // Reset spin trigger
-            setRotation(0) // Reset rotation for next round
-          }
-        } catch (err: any) {
-          handleError(err.message, "Spin Completion")
-        }
-      }, 15000) // This timeout should match the CSS transition duration
-    } else if (roomState.status !== "spinning" && spinTrigger !== 0) {
-      // If room status changes away from spinning, reset spinTrigger
-      console.log("Room status changed from spinning, resetting spinTrigger and rotation.")
-      setSpinTrigger(0)
-      setRotation(0) // Ensure rotation is reset if game state changes unexpectedly
-    }
-
-    // Cleanup function for all intervals managed by this effect
-    return () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current)
-        countdownIntervalRef.current = null
-      }
-      if (countdownSpinIntervalRef.current) {
-        clearInterval(countdownSpinIntervalRef.current)
-        countdownSpinIntervalRef.current = null
-      }
-    }
-  }, [roomState, participantsForGame, spinTrigger, defaultRoomId, hapticFeedback, handleError])
-
-  const handleAddPlayer = useCallback(
-    async (isGift = true, tonAmountToAdd?: number) => {
-      if (isLoading) {
-        console.log("Add player: Already loading, skipping.")
+  // --- Упрощенная логика для кнопок и отображения ---
+  const handleAddPlayerClick = useCallback(
+    (isGift: boolean, tonAmountToAdd?: number) => {
+      if (!user) {
+        showAlert("Пользователь не определен.")
         return
       }
-
-      try {
-        if (!user || !roomState || !supabase) {
-          handleError("Отсутствуют необходимые данные", "Add Player")
-          return
-        }
-
-        // Check if the game is in a state where adding players is not allowed
-        if (roomState.status === "spinning" || roomState.status === "finished") {
-          showAlert("Игра уже идет или завершена. Дождитесь нового раунда.")
-          hapticFeedback.notificationOccurred("error")
-          return
-        }
-
-        // Check if countdown is active and too close to end
-        if (roomState.status === "countdown" && roomState.countdown_end_time) {
-          const remaining = Math.max(
-            0,
-            Math.floor((new Date(roomState.countdown_end_time).getTime() - Date.now()) / 1000),
-          )
-          if (remaining <= 3) {
-            showAlert("Нельзя присоединиться в последние секунды отсчета.")
-            hapticFeedback.notificationOccurred("error")
-            return
-          }
-        }
-
-        setIsLoading(true)
-        setError(null)
-        hapticFeedback.impactOccurred("medium")
-
-        const existingParticipant = participantsForGame.find((p) => p.telegramId === user.id)
-        const currentTonValue = existingParticipant ? existingParticipant.tonValue : 0
-        const currentGifts = existingParticipant ? existingParticipant.gifts : 0
-
-        const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
-        const newTonValue = currentTonValue + tonValueToAdd
-        const newGifts = currentGifts + 1
-
-        const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
-        newPlayer.gifts = newGifts // Update gift count
-
-        console.log("Calling addPlayerToRoom with:", newPlayer)
-        const { room, error } = await addPlayerToRoom(roomState.id, newPlayer)
-
-        if (error) {
-          handleError(error, "Add Player to Room")
-          return
-        }
-        console.log("addPlayerToRoom RPC returned room:", room)
-        // Realtime subscriptions will automatically update UI
-      } catch (error: any) {
-        handleError(error.message, "Add Player Exception")
-      } finally {
-        setIsLoading(false)
-      }
+      hapticFeedback.impactOccurred("medium")
+      const amount = isGift ? "гифт" : `${tonAmountToAdd} ТОН`
+      showAlert(`Кнопка "Добавить ${amount}" нажата. Логика добавления игрока пока отключена.`)
+      console.log(`Attempted to add ${amount} for user:`, user.username || user.id)
     },
-    [
-      user,
-      roomState,
-      supabase,
-      isLoading,
-      hapticFeedback,
-      showAlert,
-      createPlayerObject,
-      participantsForGame,
-      handleError,
-    ],
+    [user, showAlert, hapticFeedback],
   )
 
-  // New function to reset the game via UI
-  const handleResetGame = useCallback(async () => {
-    if (isLoading) return
-    setIsLoading(true)
-    setError(null)
-    try {
-      hapticFeedback.impactOccurred("light")
-      console.log("Calling resetRoom server action.")
-      const { success, error: resetError } = await resetRoom(defaultRoomId)
-      if (resetError) {
-        handleError(resetError, "Reset Game")
-      } else {
-        showAlert("Игра успешно сброшена!")
-        hapticFeedback.notificationOccurred("success")
-        // Realtime subscriptions will update room state
-      }
-    } catch (err: any) {
-      handleError(err.message, "Reset Game Exception")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [defaultRoomId, hapticFeedback, handleError, isLoading, showAlert])
+  const handleResetGameClick = useCallback(() => {
+    hapticFeedback.impactOccurred("light")
+    showAlert("Кнопка 'Сбросить игру' нажата. Логика сброса игры пока отключена.")
+    console.log("Attempted to reset game.")
+  }, [showAlert, hapticFeedback])
 
   const getWheelSegments = useCallback(() => {
-    const currentParticipants = participantsForGame
-    if (currentParticipants.length === 0) return []
+    // В этой упрощенной версии, колесо будет просто отображать участников без сложной логики ставок
+    // Если участников нет, можно показать заглушку
+    if (participantsForGame.length === 0) {
+      return [
+        {
+          player: {
+            color: "#4b5563",
+            displayName: "Нет участников",
+            avatar: "/placeholder.svg?height=16&width=16",
+            percentage: 100,
+          } as Player,
+          startAngle: 0,
+          endAngle: 360,
+          angle: 360,
+        },
+      ]
+    }
 
     let currentAngle = 0
-    return currentParticipants.map((player) => {
-      const segmentAngle = (player.percentage / 100) * 360
+    const segmentSize = 360 / participantsForGame.length // Делим колесо поровну
+    return participantsForGame.map((player) => {
       const segment = {
         player,
         startAngle: currentAngle,
-        endAngle: currentAngle + segmentAngle,
-        angle: segmentAngle,
+        endAngle: currentAngle + segmentSize,
+        angle: segmentSize,
       }
-      currentAngle += segmentAngle
+      currentAngle += segmentSize
       return segment
     })
   }, [participantsForGame])
@@ -507,8 +306,8 @@ export default function RouletteGameClient({
                     >
                       <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0 animate-pulse"></div>
                       <img
-                        src={player.avatar || "/placeholder.svg?height=32&width=32"} // Updated
-                        alt={player.displayName || "Player avatar"} // Improved alt
+                        src={player.avatar || "/placeholder.svg?height=32&width=32"}
+                        alt={player.displayName || "Player avatar"}
                         className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                         style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                       />
@@ -528,8 +327,8 @@ export default function RouletteGameClient({
         {user && (
           <div className="bg-black/60 border border-gray-600 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 h-10">
             <img
-              src={getUserPhotoUrl(user) || "/placeholder.svg?height=24&width=24"} // Updated
-              alt={getUserDisplayName(user) || "User avatar"} // Improved alt
+              src={getUserPhotoUrl(user) || "/placeholder.svg?height=24&width=24"}
+              alt={getUserDisplayName(user) || "User avatar"}
               className="w-6 h-6 rounded-full object-cover"
             />
             <span className="text-sm text-white whitespace-nowrap">{getUserDisplayName(user)}</span>
@@ -543,7 +342,7 @@ export default function RouletteGameClient({
           variant="ghost"
           size="sm"
           className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
-          onClick={handleResetGame}
+          onClick={handleResetGameClick}
           disabled={isLoading}
         >
           <RotateCcw className="w-4 h-4 mr-2" />
@@ -575,29 +374,14 @@ export default function RouletteGameClient({
 
         {/* Wheel */}
         <div
-          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative shadow-2xl shadow-gray-900/50 wheel-container wheel-spin"
-          style={{
-            transform: `rotate(${rotation}deg)`,
-            transition: roomState.status === "spinning" ? "transform 15s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
-          }}
+          className="w-80 h-80 min-w-80 min-h-80 max-w-80 max-h-80 rounded-full relative shadow-2xl shadow-gray-900/50 wheel-container"
+          // В этой версии колесо не будет вращаться по игровой логике
+          style={{ transform: `rotate(${rotation}deg)` }}
         >
-          {roomState.status === "waiting" ? (
+          {participants.length === 0 ? (
             <div className="w-full h-full bg-gray-600 rounded-full relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
                 <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
-              </div>
-            </div>
-          ) : participants.length === 1 && roomState.status === "single_player" ? (
-            <div className="w-full h-full rounded-full relative" style={{ backgroundColor: participants[0]?.color }}>
-              <div className="absolute top-16 left-16 w-8 h-8 rounded-full overflow-hidden border-2 border-white">
-                <img
-                  src={participants[0]?.avatar || "/placeholder.svg?height=32&width=32"} // Updated
-                  alt={participants[0]?.displayName || "Player avatar"} // Improved alt
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
-                <span className="text-gray-300 text-sm font-medium">Ждем второго игрока</span>
               </div>
             </div>
           ) : (
@@ -641,7 +425,7 @@ export default function RouletteGameClient({
                         y={avatarY - 8}
                         width="16"
                         height="16"
-                        href={segment.player.avatar || "/placeholder.svg?height=16&width=16"} // Updated
+                        href={segment.player.avatar || "/placeholder.svg?height=16&width=16"}
                         clipPath="circle(8px at center)"
                       />
                     </g>
@@ -650,13 +434,7 @@ export default function RouletteGameClient({
               </svg>
 
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
-                {roomState.status === "countdown" ? (
-                  <span className="text-green-400 text-lg font-mono font-bold">{countdownSeconds}</span>
-                ) : (
-                  <span className="text-gray-300 text-sm font-medium">
-                    {roomState.status === "spinning" ? "Крутим!" : "Готов к игре"}
-                  </span>
-                )}
+                <span className="text-gray-300 text-sm font-medium">Готов к игре</span>
               </div>
             </>
           )}
@@ -667,13 +445,8 @@ export default function RouletteGameClient({
       <div className="flex gap-3 px-4 mb-6 relative z-10">
         <Button
           className="flex-1 bg-green-500 hover:bg-green-600 text-black font-medium py-3 rounded-xl disabled:bg-gray-600 disabled:text-gray-400 touch-manipulation transition-all duration-200"
-          onClick={() => handleAddPlayer(true)}
-          disabled={
-            isLoading ||
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && countdownSeconds <= 3)
-          }
+          onClick={() => handleAddPlayerClick(true)}
+          disabled={isLoading}
         >
           <Plus className="w-5 h-5 mr-2" />
           {isLoading ? "Добавляем..." : "Добавить гифт"}
@@ -681,20 +454,13 @@ export default function RouletteGameClient({
 
         <Button
           className={`flex-1 font-medium py-3 rounded-xl flex items-center justify-center touch-manipulation transition-all duration-200 ${
-            isLoading || (roomState.status === "countdown" && countdownSeconds <= 3)
-              ? "bg-gray-600 text-gray-400 cursor-not-allowed"
-              : "bg-green-400 hover:bg-green-500 text-black"
+            isLoading ? "bg-gray-600 text-gray-400 cursor-not-allowed" : "bg-green-400 hover:bg-green-500 text-black"
           }`}
           onClick={() => {
-            handleAddPlayer(false, displayedTonAmount)
+            handleAddPlayerClick(false, displayedTonAmount)
             setDisplayedTonAmount(Math.floor(Math.random() * 20 + 5))
           }}
-          disabled={
-            isLoading ||
-            roomState.status === "spinning" ||
-            roomState.status === "finished" ||
-            (roomState.status === "countdown" && countdownSeconds <= 3)
-          }
+          disabled={isLoading}
         >
           <span className="text-2xl mr-2 flex-shrink-0">🎁</span>
           <span className={`whitespace-nowrap ${tonButtonFontSizeClass}`}>
@@ -729,7 +495,7 @@ export default function RouletteGameClient({
           <>
             <div className="text-center mb-4">
               <h3 className="text-lg font-bold text-white">Участники игры</h3>
-              <p className="text-sm text-gray-400">Ставки обновляются в реальном времени</p>
+              <p className="text-sm text-gray-400">Ставки отображаются</p>
             </div>
             {participants.map((player) => (
               <div key={player.id} className="mb-3">
@@ -737,8 +503,8 @@ export default function RouletteGameClient({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <img
-                        src={player.avatar || "/placeholder.svg?height=40&width=40"} // Updated
-                        alt={player.displayName || "Player avatar"} // Improved alt
+                        src={player.avatar || "/placeholder.svg?height=40&width=40"}
+                        alt={player.displayName || "Player avatar"}
                         className="w-10 h-10 rounded-full object-cover"
                         style={{ border: `3px solid ${player.color}` }}
                       />
@@ -769,7 +535,7 @@ export default function RouletteGameClient({
         )}
       </div>
 
-      {/* Winner modal */}
+      {/* Winner modal (still present but won't be triggered by game logic) */}
       {showWinnerModal && winnerDetails && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <Card className="bg-black border-gray-600 p-6 rounded-2xl max-w-sm w-full text-center relative animate-in zoom-in-95 duration-300">
@@ -784,8 +550,8 @@ export default function RouletteGameClient({
             <div className="text-4xl mb-4 animate-bounce">🎉</div>
             <h2 className="text-2xl font-bold text-white mb-2">Поздравляем!</h2>
             <img
-              src={winnerDetails.avatar || "/placeholder.svg?height=64&width=64"} // Updated
-              alt={winnerDetails.displayName || "Winner avatar"} // Improved alt
+              src={winnerDetails.avatar || "/placeholder.svg?height=64&width=64"}
+              alt={winnerDetails.displayName || "Winner avatar"}
               className="w-16 h-16 rounded-full mx-auto mb-2 object-cover border-4 border-green-400"
             />
             <div className="text-lg text-white mb-2 flex items-center justify-center gap-1">
