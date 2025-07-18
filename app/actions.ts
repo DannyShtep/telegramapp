@@ -243,3 +243,47 @@ export async function determineWinnerAndSpin(roomId: string) {
     return { success: false, error: error.message }
   }
 }
+
+// Добавляем функцию для получения всех игроков в комнате
+export async function getPlayersInRoom(roomId: string) {
+  try {
+    const supabase = await getSupabase()
+    const { data, error } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .order("last_active_at", { ascending: false }) // Сортируем по последней активности
+    if (error) {
+      console.error("Error fetching players in room:", error)
+      return { players: [], error: error.message }
+    }
+    // Преобразуем SupabasePlayer в Player для клиентской части
+    const clientPlayers: Player[] = data.map(mapSupabasePlayerToClientPlayer)
+    return { players: clientPlayers, error: null }
+  } catch (error: any) {
+    console.error("Caught exception in getPlayersInRoom:", error.message)
+    return { players: [], error: error.message }
+  }
+}
+
+// Добавляем функцию для получения только участников игры (is_participant = true)
+export async function getParticipants(roomId: string) {
+  try {
+    const supabase = await getSupabase()
+    const { data, error } = await supabase
+      .from("players")
+      .select("*")
+      .eq("room_id", roomId)
+      .eq("is_participant", true) // Фильтруем по участникам
+      .order("ton_value", { ascending: false }) // Сортируем по TON для отображения
+    if (error) {
+      console.error("Error fetching participants:", error)
+      return { participants: [], error: error.message }
+    }
+    const clientParticipants: Player[] = data.map(mapSupabasePlayerToClientPlayer)
+    return { participants: clientParticipants, error: null }
+  } catch (error: any) {
+    console.error("Caught exception in getParticipants:", error.message)
+    return { participants: [], error: error.message }
+  }
+}
