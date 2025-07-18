@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react" // Add useMemo
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users, AlertCircle } from "lucide-react"
@@ -210,17 +210,59 @@ export default function RouletteGameClient({
     }))
   }, [participantsForGame])
 
-  // Логика таймера и анимации колеса
+  // New useEffect for countdown timer logic
   useEffect(() => {
-    // Используем roomStateRef.current для доступа к актуальному roomState
+    const currentRoomState = roomStateRef.current // Access current value via ref
+
+    if (currentRoomState?.status === "countdown" && currentRoomState.countdown_end_time) {
+      const endTime = new Date(currentRoomState.countdown_end_time).getTime()
+      console.log(`[Countdown Timer] Starting. End time: ${currentRoomState.countdown_end_time}, Parsed: ${endTime}`)
+
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current) // Clear existing interval
+
+      countdownIntervalRef.current = setInterval(async () => {
+        const now = Date.now()
+        const remainingSeconds = Math.max(0, Math.floor((endTime - now) / 1000))
+        setCountdownSeconds(remainingSeconds)
+        console.log(`[Countdown Timer] Now: ${now}, Remaining: ${remainingSeconds}`)
+
+        if (remainingSeconds <= 0) {
+          clearInterval(countdownIntervalRef.current!)
+          countdownIntervalRef.current = null
+          hapticFeedback.impactOccurred("heavy")
+          console.log("[Countdown Timer] Reached 0, calling determineWinnerAndSpin...")
+          await determineWinnerAndSpin(defaultRoomId)
+        } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
+          hapticFeedback.impactOccurred("heavy")
+        }
+      }, 1000)
+    } else {
+      setCountdownSeconds(0) // Reset timer if not in countdown mode
+      if (countdownIntervalRef.current) {
+        console.log("[Countdown Timer] Clearing interval due to status change.")
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
+    }
+
+    // Cleanup function for this specific useEffect
+    return () => {
+      if (countdownIntervalRef.current) {
+        console.log("[Countdown Timer] Cleanup on unmount/dependency change.")
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
+    }
+  }, [roomState?.status, roomState?.countdown_end_time, defaultRoomId, hapticFeedback]) // Dependencies for this specific timer
+
+  // Main game logic useEffect (now without countdown timer logic)
+  useEffect(() => {
     const currentRoomState = roomStateRef.current
     if (!currentRoomState) return
 
     console.log(
-      "Game logic useEffect triggered. Current roomState:",
+      "Main Game Logic useEffect triggered. Current roomState:",
       currentRoomState.status,
-      "Countdown end:",
-      currentRoomState.countdown_end_time,
       "Spin Trigger:",
       spinTrigger,
     )
@@ -242,39 +284,6 @@ export default function RouletteGameClient({
       }
     }
 
-    // --- Timer logic: client-side countdown ---
-    if (currentRoomState.status === "countdown" && currentRoomState.countdown_end_time) {
-      const endTime = new Date(currentRoomState.countdown_end_time).getTime()
-
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current) // Clear existing interval to prevent duplicates
-
-      countdownIntervalRef.current = setInterval(async () => {
-        const now = Date.now()
-        const remainingSeconds = Math.max(0, Math.floor((endTime - now) / 1000))
-        setCountdownSeconds(remainingSeconds)
-        console.log("Countdown:", remainingSeconds)
-
-        if (remainingSeconds <= 0) {
-          clearInterval(countdownIntervalRef.current!)
-          countdownIntervalRef.current = null
-          hapticFeedback.impactOccurred("heavy")
-
-          // This is the critical call: trigger winner determination
-          console.log("Countdown reached 0, calling determineWinnerAndSpin...")
-          await determineWinnerAndSpin(defaultRoomId)
-        } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
-          hapticFeedback.impactOccurred("heavy")
-        }
-      }, 1000)
-    } else {
-      setCountdownSeconds(0) // Reset timer if not in countdown mode
-      if (countdownIntervalRef.current) {
-        console.log("Clearing countdown timer.")
-        clearInterval(countdownIntervalRef.current)
-        countdownIntervalRef.current = null
-      }
-    }
-
     // --- Handle final wheel spin and winner announcement ---
     if (currentRoomState.status === "spinning" && spinTrigger === 0) {
       console.log("Room status is spinning, initiating client-side spin animation.")
@@ -285,7 +294,6 @@ export default function RouletteGameClient({
       setTimeout(async () => {
         console.log("Spin animation complete, checking winner and resetting room.")
         try {
-          // Use participantsWithPercentages for winner lookup
           const winner = participantsWithPercentages.find((p) => p.telegramId === currentRoomState.winner_telegram_id)
           if (winner) {
             setWinnerDetails(winner)
@@ -316,18 +324,15 @@ export default function RouletteGameClient({
       setRotation(0) // Ensure rotation is reset if game state changes unexpectedly
     }
 
-    // Cleanup function for all intervals managed by this effect
+    // Cleanup for countdown spin animation
     return () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current)
-        countdownIntervalRef.current = null
-      }
       if (countdownSpinIntervalRef.current) {
+        console.log("Cleaning up countdown spin animation interval.")
         clearInterval(countdownSpinIntervalRef.current)
         countdownSpinIntervalRef.current = null
       }
     }
-  }, [roomState, spinTrigger, defaultRoomId, hapticFeedback, handleError, participantsWithPercentages]) // Removed participantsForGame from dependencies, added participantsWithPercentages
+  }, [roomState?.status, spinTrigger, defaultRoomId, hapticFeedback, handleError, participantsWithPercentages]) // Dependencies for main game logic
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -381,7 +386,7 @@ export default function RouletteGameClient({
           // Logic to transition to countdown if enough players
           if ((prevRoom.status === "waiting" || prevRoom.status === "single_player") && playersInRoom.length + 1 >= 2) {
             newStatus = "countdown"
-            newCountdownEndTime = new Date(Date.now() + 20 * 1000).toISOString()
+            newCountdownEndTime = new Date(Date.now() + 15 * 1000).toISOString() // Изменено с 20 на 15 секунд
           }
 
           return {
