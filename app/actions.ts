@@ -110,8 +110,10 @@ export async function ensureUserOnline(
         return { success: false, error: updateError.message }
       }
     } else {
+      // Генерируем UUID для нового игрока
+      const newPlayerId = crypto.randomUUID()
       const newPlayerData = {
-        id: `online_${telegramId}_${Date.now()}`,
+        id: newPlayerId, // Используем сгенерированный UUID
         room_id: roomId,
         telegram_id: telegramId,
         username: telegramUsername,
