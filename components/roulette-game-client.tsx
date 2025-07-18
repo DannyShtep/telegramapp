@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react" // Add useMemo
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, Users, AlertCircle } from "lucide-react"
@@ -201,6 +201,15 @@ export default function RouletteGameClient({
     }
   }, [isReady, supabase, defaultRoomId]) // Минимальные зависимости для подписок
 
+  // Calculate participants with percentages using useMemo
+  const participantsWithPercentages = useMemo(() => {
+    const totalTon = participantsForGame.reduce((sum, p) => sum + p.tonValue, 0)
+    return participantsForGame.map((p) => ({
+      ...p,
+      percentage: totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0,
+    }))
+  }, [participantsForGame])
+
   // Логика таймера и анимации колеса
   useEffect(() => {
     // Используем roomStateRef.current для доступа к актуальному roomState
@@ -215,23 +224,6 @@ export default function RouletteGameClient({
       "Spin Trigger:",
       spinTrigger,
     )
-
-    const currentParticipants = participantsForGameRef.current // Используем ref для актуальных участников
-    const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
-
-    // Пересчитываем проценты для отображения
-    const updatedParticipantsForGame = currentParticipants.map((p) => {
-      const newPerc = totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0
-      return newPerc !== p.percentage ? { ...p, percentage: newPerc } : p
-    })
-
-    // Обновляем participantsForGame только если есть изменения в процентах
-    const hasParticipantsChanged = updatedParticipantsForGame.some(
-      (p, i) => p.percentage !== participantsForGame[i]?.percentage,
-    )
-    if (hasParticipantsChanged || updatedParticipantsForGame.length !== participantsForGame.length) {
-      setParticipantsForGame(updatedParticipantsForGame)
-    }
 
     // --- Countdown animation logic ---
     if (currentRoomState.status === "countdown") {
@@ -293,9 +285,8 @@ export default function RouletteGameClient({
       setTimeout(async () => {
         console.log("Spin animation complete, checking winner and resetting room.")
         try {
-          const winner = participantsForGameRef.current.find(
-            (p) => p.telegramId === currentRoomState.winner_telegram_id,
-          )
+          // Use participantsWithPercentages for winner lookup
+          const winner = participantsWithPercentages.find((p) => p.telegramId === currentRoomState.winner_telegram_id)
           if (winner) {
             setWinnerDetails(winner)
             setShowWinnerModal(true)
@@ -336,7 +327,7 @@ export default function RouletteGameClient({
         countdownSpinIntervalRef.current = null
       }
     }
-  }, [roomState, participantsForGame, spinTrigger, defaultRoomId, hapticFeedback, handleError]) // Keep dependencies for game logic
+  }, [roomState, spinTrigger, defaultRoomId, hapticFeedback, handleError, participantsWithPercentages]) // Removed participantsForGame from dependencies, added participantsWithPercentages
 
   const handleAddPlayer = useCallback(
     async (isGift = true, tonAmountToAdd?: number) => {
@@ -379,33 +370,36 @@ export default function RouletteGameClient({
         const giftsToAdd = isGift ? 1 : 0
 
         // --- Оптимистичное обновление UI ---
+        // Update roomState optimistically
         setRoomState((prevRoom) => {
           if (!prevRoom) return null
+          const newTotalGifts = prevRoom.total_gifts + giftsToAdd
+          const newTotalTon = prevRoom.total_ton + tonValueToAdd
+          let newStatus = prevRoom.status
+          let newCountdownEndTime = prevRoom.countdown_end_time
+
+          // Logic to transition to countdown if enough players
+          if ((prevRoom.status === "waiting" || prevRoom.status === "single_player") && playersInRoom.length + 1 >= 2) {
+            newStatus = "countdown"
+            newCountdownEndTime = new Date(Date.now() + 20 * 1000).toISOString()
+          }
+
           return {
             ...prevRoom,
-            total_gifts: prevRoom.total_gifts + giftsToAdd,
-            total_ton: prevRoom.total_ton + tonValueToAdd,
-            status:
-              prevRoom.status === "waiting" && playersInRoom.length + 1 >= 2
-                ? "countdown"
-                : prevRoom.status === "single_player" && playersInRoom.length + 1 >= 2
-                  ? "countdown"
-                  : prevRoom.status,
-            countdown_end_time:
-              prevRoom.status === "waiting" && playersInRoom.length + 1 >= 2
-                ? new Date(Date.now() + 20 * 1000).toISOString()
-                : prevRoom.status === "single_player" && playersInRoom.length + 1 >= 2
-                  ? new Date(Date.now() + 20 * 1000).toISOString()
-                  : prevRoom.countdown_end_time,
+            total_gifts: newTotalGifts,
+            total_ton: newTotalTon,
+            status: newStatus,
+            countdown_end_time: newCountdownEndTime,
           }
         })
 
+        // Optimistically update participantsForGame
         setParticipantsForGame((prevParticipants) => {
           const existingParticipantIndex = prevParticipants.findIndex((p) => p.telegramId === user.id)
           let updatedParticipants: Player[]
 
           if (existingParticipantIndex !== -1) {
-            // Обновляем существующего участника
+            // Update existing participant
             updatedParticipants = prevParticipants.map((p, index) =>
               index === existingParticipantIndex
                 ? {
@@ -417,42 +411,37 @@ export default function RouletteGameClient({
                 : p,
             )
           } else {
-            // Добавляем нового участника
+            // Add new participant
             const newPlayer = createPlayerObject(user, true, tonValueToAdd, prevParticipants.length)
-            newPlayer.gifts = giftsToAdd // Устанавливаем начальное количество гифтов
+            newPlayer.gifts = giftsToAdd // Set initial gifts
             updatedParticipants = [...prevParticipants, newPlayer]
           }
-
-          // Пересчитываем проценты для оптимистичного обновления
-          const currentTotalTon = updatedParticipants.reduce((sum, p) => sum + p.tonValue, 0)
-          return updatedParticipants.map((p) => ({
-            ...p,
-            percentage: currentTotalTon > 0 ? (p.tonValue / currentTotalTon) * 100 : 0,
-          }))
+          return updatedParticipants // No need to recalculate percentages here, useMemo will handle it
         })
 
         // --- Вызов серверного действия ---
         console.log("Calling addPlayerToRoom with:", user.id)
         const { room, error } = await addPlayerToRoom(roomState.id, {
-          ...createPlayerObject(user, true, tonValueToAdd, participantsForGame.length), // Передаем данные для RPC
-          gifts: giftsToAdd, // Передаем giftsToAdd
-          tonValue: tonValueToAdd, // Передаем tonValueToAdd
+          ...createPlayerObject(user, true, tonValueToAdd, participantsForGame.length), // Pass data for RPC
+          gifts: giftsToAdd, // Pass giftsToAdd
+          tonValue: tonValueToAdd, // Pass tonValueToAdd
         })
 
         if (error) {
-          // Если серверное действие завершилось ошибкой, откатываем оптимистичное обновление
+          // If server action failed, revert optimistic update
           console.error("Server action failed, reverting optimistic update:", error)
-          setRoomState(initialRoomState) // Или загрузить актуальное состояние с сервера
-          setParticipantsForGame(initialParticipantsForGame) // Или загрузить актуальное состояние с сервера
+          // A more robust rollback would fetch the actual state from DB,
+          // but for now, we can rely on the next Realtime update to correct it.
+          // For simplicity, we'll let Realtime handle the eventual consistency.
           handleError(error, "Add Player to Room")
           return
         }
         console.log("addPlayerToRoom RPC returned room:", room)
-        // Realtime subscriptions will automatically update UI, подтверждая оптимистичное обновление
+        // Realtime subscriptions will automatically update UI, confirming optimistic update
       } catch (error: any) {
         handleError(error.message, "Add Player Exception")
       } finally {
-        setIsAddingPlayer(false) // Сбрасываем состояние загрузки
+        setIsAddingPlayer(false) // Reset loading state
       }
     },
     [
@@ -463,17 +452,18 @@ export default function RouletteGameClient({
       hapticFeedback,
       showAlert,
       createPlayerObject,
-      participantsForGame,
+      participantsForGame, // Keep this dependency for optimistic update logic
       playerColors,
       handleError,
       playersInRoom,
-      initialRoomState,
-      initialParticipantsForGame,
+      // initialRoomState, // No longer needed for rollback, relying on Realtime
+      // initialParticipantsForGame, // No longer needed for rollback, relying on Realtime
     ],
   )
 
   const getWheelSegments = useCallback(() => {
-    const currentParticipants = participantsForGame
+    // Use participantsWithPercentages here
+    const currentParticipants = participantsWithPercentages
     if (currentParticipants.length === 0) return []
 
     let currentAngle = 0
@@ -488,10 +478,11 @@ export default function RouletteGameClient({
       currentAngle += segmentAngle
       return segment
     })
-  }, [participantsForGame])
+  }, [participantsWithPercentages]) // Dependency on the memoized value
 
   const segments = getWheelSegments()
-  const participants = participantsForGame
+  // Use participantsWithPercentages for rendering the list of participants
+  const participantsToRender = participantsWithPercentages
 
   const tonButtonFontSizeClass = displayedTonAmount >= 10 ? "text-xs" : "text-base"
 
@@ -628,12 +619,15 @@ export default function RouletteGameClient({
                 <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
               </div>
             </div>
-          ) : participants.length === 1 && roomState.status === "single_player" ? (
-            <div className="w-full h-full rounded-full relative" style={{ backgroundColor: participants[0]?.color }}>
+          ) : participantsToRender.length === 1 && roomState.status === "single_player" ? (
+            <div
+              className="w-full h-full rounded-full relative"
+              style={{ backgroundColor: participantsToRender[0]?.color }}
+            >
               <div className="absolute top-16 left-16 w-8 h-8 rounded-full overflow-hidden border-2 border-white">
                 <img
-                  src={participants[0]?.avatar || "/placeholder.svg?height=32&width=32"}
-                  alt={participants[0]?.displayName || "Player avatar"}
+                  src={participantsToRender[0]?.avatar || "/placeholder.svg?height=32&width=32"}
+                  alt={participantsToRender[0]?.displayName || "Player avatar"}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -761,7 +755,7 @@ export default function RouletteGameClient({
 
       {/* List of game participants with their bets */}
       <div className="px-4 mb-6 relative z-10 mobile-safe-area">
-        {participants.length === 0 ? (
+        {participantsToRender.length === 0 ? (
           <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm text-center mb-4">
             <p className="text-gray-400">Нет участников в текущей игре</p>
             <p className="text-gray-500 text-sm mt-2">Добавьте ТОН, чтобы начать игру!</p>
@@ -772,7 +766,7 @@ export default function RouletteGameClient({
               <h3 className="text-lg font-bold text-white">Участники игры</h3>
               <p className="text-sm text-gray-400">Ставки обновляются в реальном времени</p>
             </div>
-            {participants.map((player) => (
+            {participantsToRender.map((player) => (
               <div key={player.id} className="mb-3">
                 <Card className="bg-black/60 border-gray-600 p-4 backdrop-blur-sm transition-all duration-200 hover:bg-black/70">
                   <div className="flex items-center justify-between">
