@@ -68,7 +68,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border)); /* ИСПРАВЛЕНО: Прямое применение CSS-свойства */
   }
   body {
     @apply bg-background text-foreground;
