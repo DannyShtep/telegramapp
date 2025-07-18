@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Plus, X, Eye, Users, AlertCircle } from "lucide-react"
+import { Plus, X, Eye, Users, AlertCircle, RotateCcw } from "lucide-react" // Добавляем RotateCcw для иконки сброса
 import { useTelegram } from "../hooks/useTelegram"
 import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
@@ -12,7 +12,7 @@ import {
   getPlayersInRoom,
   ensureUserOnline,
   determineWinnerAndSpin,
-  resetRoom,
+  resetRoom, // Убедимся, что resetRoom импортирован
   getParticipants,
 } from "@/app/actions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -79,7 +79,7 @@ export default function RouletteGameClient({
       console.error(`[${context}] Error:`, message)
       setError(message)
       setIsLoading(false)
-      hapticFeedback.notification("error")
+      hapticFeedback.notificationOccurred("error") // Изменено на notificationOccurred
       setTimeout(() => setError(null), 5000)
     },
     [hapticFeedback],
@@ -173,7 +173,7 @@ export default function RouletteGameClient({
         onlineUpdateIntervalRef.current = null
       }
     }
-  }, [isReady, user, supabase, defaultRoomId, updateOnlineStatus]) // Зависимость от roomState.id для переподписки при смене комнаты
+  }, [isReady, user, supabase, defaultRoomId, updateOnlineStatus]) // Удалена зависимость roomState?.id
 
   // Логика таймера и анимации колеса
   useEffect(() => {
@@ -223,12 +223,12 @@ export default function RouletteGameClient({
         if (remainingSeconds <= 0) {
           clearInterval(countdownIntervalRef.current!)
           countdownIntervalRef.current = null
-          hapticFeedback.impact("heavy")
+          hapticFeedback.impactOccurred("heavy") // Изменено на impactOccurred
 
           // Запускаем определение победителя и вращение через серверный экшен
           await determineWinnerAndSpin(defaultRoomId)
         } else if (remainingSeconds <= 3 && remainingSeconds > 0) {
-          hapticFeedback.impact("heavy")
+          hapticFeedback.impactOccurred("heavy") // Изменено на impactOccurred
         }
       }, 1000)
     } else {
@@ -251,7 +251,7 @@ export default function RouletteGameClient({
           if (winner) {
             setWinnerDetails(winner)
             setShowWinnerModal(true)
-            hapticFeedback.notification("success")
+            hapticFeedback.notificationOccurred("success") // Изменено на notificationOccurred
 
             setTimeout(async () => {
               setShowWinnerModal(false)
@@ -299,7 +299,7 @@ export default function RouletteGameClient({
 
         if (roomState.status === "spinning" || roomState.status === "finished") {
           showAlert("Игра уже идет или завершена. Дождитесь нового раунда.")
-          hapticFeedback.notification("error")
+          hapticFeedback.notificationOccurred("error") // Изменено на notificationOccurred
           return
         }
 
@@ -311,7 +311,7 @@ export default function RouletteGameClient({
           )
           if (remaining <= 3) {
             showAlert("Нельзя присоединиться в последние секунды отсчета.")
-            hapticFeedback.notification("error")
+            hapticFeedback.notificationOccurred("error") // Изменено на notificationOccurred
             return
           }
         }
@@ -330,7 +330,7 @@ export default function RouletteGameClient({
         const newPlayer = createPlayerObject(user, true, newTonValue, participantsForGame.length)
         newPlayer.gifts = newGifts // Обновляем количество подарков
 
-        hapticFeedback.impact("medium")
+        hapticFeedback.impactOccurred("medium") // Изменено на impactOccurred
 
         // Вызываем RPC функцию через server action
         const { room, error } = await addPlayerToRoom(roomState.id, newPlayer)
@@ -358,6 +358,28 @@ export default function RouletteGameClient({
       handleError,
     ],
   )
+
+  // Новая функция для сброса игры через UI
+  const handleResetGame = useCallback(async () => {
+    if (isLoading) return
+    setIsLoading(true)
+    setError(null)
+    try {
+      hapticFeedback.impactOccurred("light") // Изменено на impactOccurred
+      const { success, error: resetError } = await resetRoom(defaultRoomId)
+      if (resetError) {
+        handleError(resetError, "Reset Game")
+      } else {
+        showAlert("Игра успешно сброшена!")
+        hapticFeedback.notificationOccurred("success") // Изменено на notificationOccurred
+        // Realtime подписки обновят состояние комнаты
+      }
+    } catch (err: any) {
+      handleError(err.message, "Reset Game Exception")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [defaultRoomId, hapticFeedback, handleError, isLoading, showAlert])
 
   const getWheelSegments = useCallback(() => {
     const currentParticipants = participantsForGame
@@ -432,7 +454,7 @@ export default function RouletteGameClient({
               variant="ghost"
               size="sm"
               className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
-              onClick={() => hapticFeedback.selection()}
+              onClick={() => hapticFeedback.selectionChanged()} // Изменено на selectionChanged
             >
               <Eye className="w-4 h-4 mr-2" />
               <span className="text-sm whitespace-nowrap">Онлайн: {playersInRoom.length}</span>
@@ -487,6 +509,20 @@ export default function RouletteGameClient({
             <span className="text-sm text-white whitespace-nowrap">{getUserDisplayName(user)}</span>
           </div>
         )}
+      </div>
+
+      {/* Кнопка сброса игры */}
+      <div className="absolute top-4 right-4 z-20">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="bg-black/60 hover:bg-black/80 border border-gray-600 backdrop-blur-sm text-white h-10 px-4 py-2 rounded-lg flex items-center justify-center touch-manipulation"
+          onClick={handleResetGame}
+          disabled={isLoading}
+        >
+          <RotateCcw className="w-4 h-4 mr-2" />
+          <span className="text-sm whitespace-nowrap">Сбросить игру</span>
+        </Button>
       </div>
 
       {/* Общий банк */}
@@ -648,7 +684,7 @@ export default function RouletteGameClient({
             key={index}
             variant="ghost"
             className="flex flex-col items-center gap-1 text-gray-400 hover:text-white py-3 touch-manipulation transition-colors duration-200"
-            onClick={() => hapticFeedback.selection()}
+            onClick={() => hapticFeedback.selectionChanged()} // Изменено на selectionChanged
           >
             <span className="text-lg">{item.icon}</span>
             <span className="text-xs">{item.label}</span>
