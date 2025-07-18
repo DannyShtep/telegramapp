@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 
 // Объявляем интерфейс для Telegram WebApp
 declare global {
@@ -137,17 +137,50 @@ export function useTelegram() {
     return telegramUser.first_name || `User ${telegramUser.id}`
   }
 
+  // Enhanced HapticFeedback fallback with try-catch for Telegram's internal calls
+  const hapticFeedback = useMemo(() => {
+    return {
+      impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => {
+        try {
+          if (webApp?.HapticFeedback?.impactOccurred) {
+            webApp.HapticFeedback.impactOccurred(style)
+          } else {
+            // console.log(`Haptic: ${style} impact (mock)`);
+          }
+        } catch (e) {
+          console.warn("Telegram HapticFeedback.impactOccurred failed:", e)
+        }
+      },
+      notificationOccurred: (type: "error" | "success" | "warning") => {
+        try {
+          if (webApp?.HapticFeedback?.notificationOccurred) {
+            webApp.HapticFeedback.notificationOccurred(type)
+          } else {
+            // console.log(`Haptic: ${type} notification (mock)`);
+          }
+        } catch (e) {
+          console.warn("Telegram HapticFeedback.notificationOccurred failed:", e)
+        }
+      },
+      selectionChanged: () => {
+        try {
+          if (webApp?.HapticFeedback?.selectionChanged) {
+            webApp.HapticFeedback.selectionChanged()
+          } else {
+            // console.log("Haptic: selection changed (mock)");
+          }
+        } catch (e) {
+          console.warn("Telegram HapticFeedback.selectionChanged failed:", e)
+        }
+      },
+    }
+  }, [webApp]) // Dependency on webApp
+
   return {
     webApp,
     user,
     isReady,
-    // Улучшенная логика fallback для HapticFeedback
-    hapticFeedback: {
-      impactOccurred: webApp?.HapticFeedback?.impactOccurred || ((style) => console.log(`Haptic: ${style} impact`)),
-      notificationOccurred:
-        webApp?.HapticFeedback?.notificationOccurred || ((type) => console.log(`Haptic: ${type} notification`)),
-      selectionChanged: webApp?.HapticFeedback?.selectionChanged || (() => console.log("Haptic: selection changed")),
-    },
+    hapticFeedback, // Use the memoized hapticFeedback
     showAlert:
       webApp?.showAlert ||
       ((message, cb) => {
