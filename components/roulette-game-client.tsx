@@ -46,6 +46,50 @@ const items = [
   { icon: "⚡", label: "Заработок" },
 ]
 
+// Helper functions for color generation (can be outside the component)
+function generateRandomHexColor() {
+  const letters = "0123456789ABCDEF"
+  let color = "#"
+  for (let i = 0; i < 6; i++) {
+    color += letters[Math.floor(Math.random() * 16)]
+  }
+  return color
+}
+
+// Simple check for color similarity (can be improved)
+function areColorsSimilar(color1: string, color2: string, threshold = 50) {
+  const hexToRgb = (hex: string) => {
+    const r = Number.parseInt(hex.substring(1, 3), 16)
+    const g = Number.parseInt(hex.substring(3, 5), 16)
+    const b = Number.parseInt(hex.substring(5, 7), 16)
+    return { r, g, b }
+  }
+
+  const rgb1 = hexToRgb(color1)
+  const rgb2 = hexToRgb(color2)
+
+  const diffR = Math.abs(rgb1.r - rgb2.r)
+  const diffG = Math.abs(rgb1.g - rgb2.g)
+  const diffB = Math.abs(rgb1.b - rgb2.b)
+
+  return (diffR + diffG + diffB) / 3 < threshold
+}
+
+function generateUniqueRandomColor(existingColors: string[], maxAttempts = 100): string {
+  let newColor: string
+  let attempts = 0
+  do {
+    newColor = generateRandomHexColor()
+    attempts++
+    if (attempts > maxAttempts) {
+      console.warn("Max attempts reached for unique color generation. Falling back to a default color.")
+      return "#CCCCCC" // A neutral fallback color
+    }
+  } while (existingColors.some((c) => areColorsSimilar(c, newColor)))
+
+  return newColor
+}
+
 export default function RouletteGameClient({
   initialRoomState,
   initialPlayersInRoom,
@@ -68,9 +112,7 @@ export default function RouletteGameClient({
   const [error, setError] = useState<string | null>(initialError)
   const [countdownSeconds, setCountdownSeconds] = useState(0)
 
-  const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  // Removed countdownSpinIntervalRef as wheel should be static during countdown
   const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Ref для хранения актуального roomState без добавления его в зависимости useEffect
@@ -97,23 +139,19 @@ export default function RouletteGameClient({
     [hapticFeedback],
   )
 
-  // Функция для создания объекта игрока из TelegramUser
-  const createPlayerObject = useCallback(
-    (telegramUser: TelegramUser, isParticipant: boolean, tonValue = 0, existingPlayersCount = 0): Player => {
+  // Modified createBasePlayerObject to be more generic
+  const createBasePlayerObject = useCallback(
+    (
+      telegramUser: TelegramUser,
+    ): Omit<Player, "gifts" | "tonValue" | "color" | "percentage" | "isParticipant" | "id"> => {
       return {
-        id: `temp_${telegramUser.id}_${Date.now()}`, // Временный ID, будет заменен UUID из DB
         telegramId: telegramUser.id,
         username: telegramUser.username || null,
         displayName: getUserDisplayName(telegramUser),
         avatar: getUserPhotoUrl(telegramUser) || null,
-        gifts: isParticipant ? 1 : 0,
-        tonValue: tonValue,
-        color: isParticipant ? playerColors[existingPlayersCount % playerColors.length] : "#4b5563",
-        percentage: 0,
-        isParticipant: isParticipant,
       }
     },
-    [getUserDisplayName, getUserPhotoUrl, playerColors],
+    [getUserDisplayName, getUserPhotoUrl],
   )
 
   // Функция для обновления онлайн-статуса
@@ -266,7 +304,6 @@ export default function RouletteGameClient({
       "Spin Trigger:",
       spinTrigger,
     )
-
     // --- Handle final wheel spin and winner announcement ---
     if (currentRoomState.status === "spinning" && spinTrigger === 0) {
       console.log("Room status is spinning, initiating client-side spin animation.")
@@ -307,7 +344,6 @@ export default function RouletteGameClient({
       setRotation(0) // Ensure rotation is reset if game state changes unexpectedly
     }
 
-    // No cleanup for countdownSpinIntervalRef needed here as it's removed.
     return () => {
       // Any other cleanup for this specific effect can go here.
     }
@@ -346,15 +382,48 @@ export default function RouletteGameClient({
           }
         }
 
-        setIsAddingPlayer(true) // Устанавливаем состояние загрузки
+        setIsAddingPlayer(true)
         setError(null)
         hapticFeedback.impactOccurred("medium")
 
         const tonValueToAdd = isGift ? Math.random() * 20 + 5 : tonAmountToAdd!
         const giftsToAdd = isGift ? 1 : 0
 
-        // --- Оптимистичное обновление UI ---
-        // Update roomState optimistically
+        let playerColor: string
+        let playerToUpdate: Player
+        let newPlayerId: string
+
+        // Find if the current user is already a participant
+        const existingParticipant = participantsForGame.find((p) => p.telegramId === user.id)
+
+        if (existingParticipant) {
+          // User is already a participant, update their existing color and values
+          playerColor = existingParticipant.color
+          playerToUpdate = {
+            ...existingParticipant,
+            gifts: existingParticipant.gifts + giftsToAdd,
+            tonValue: existingParticipant.tonValue + tonValueToAdd,
+            isParticipant: true, // Ensure it's true
+          }
+          newPlayerId = existingParticipant.id // Use existing ID
+        } else {
+          // New participant, generate a unique color
+          const usedColors = participantsForGame.map((p) => p.color)
+          playerColor = generateUniqueRandomColor(usedColors)
+          newPlayerId = `temp_${user.id}_${Date.now()}` // Temporary ID for optimistic update
+
+          playerToUpdate = {
+            ...createBasePlayerObject(user), // Get base info
+            id: newPlayerId, // Assign temporary ID
+            gifts: giftsToAdd,
+            tonValue: tonValueToAdd,
+            color: playerColor,
+            percentage: 0, // Will be calculated by RPC
+            isParticipant: true,
+          }
+        }
+
+        // --- Optimistic UI Update ---
         setRoomState((prevRoom) => {
           if (!prevRoom) return null
           const newTotalGifts = prevRoom.total_gifts + giftsToAdd
@@ -362,12 +431,17 @@ export default function RouletteGameClient({
           let newStatus = prevRoom.status
           let newCountdownEndTime = prevRoom.countdown_end_time
 
-          // Logic to transition to countdown if enough players
-          if ((prevRoom.status === "waiting" || prevRoom.status === "single_player") && playersInRoom.length + 1 >= 2) {
-            newStatus = "countdown"
-            newCountdownEndTime = new Date(Date.now() + 15 * 1000).toISOString() // Изменено с 20 на 15 секунд
-          }
+          const currentParticipantCount = participantsForGame.length
+          const willBeNewParticipant = !existingParticipant
+          const projectedParticipantCount = currentParticipantCount + (willBeNewParticipant ? 1 : 0)
 
+          if (
+            (prevRoom.status === "waiting" || prevRoom.status === "single_player") &&
+            projectedParticipantCount >= 2
+          ) {
+            newStatus = "countdown"
+            newCountdownEndTime = new Date(Date.now() + 15 * 1000).toISOString()
+          }
           return {
             ...prevRoom,
             total_gifts: newTotalGifts,
@@ -379,41 +453,21 @@ export default function RouletteGameClient({
 
         // Optimistically update participantsForGame
         setParticipantsForGame((prevParticipants) => {
-          const existingParticipantIndex = prevParticipants.findIndex((p) => p.telegramId === user.id)
-          let updatedParticipants: Player[]
-
-          if (existingParticipantIndex !== -1) {
-            // Update existing participant
-            updatedParticipants = prevParticipants.map((p, index) =>
-              index === existingParticipantIndex
-                ? {
-                    ...p,
-                    gifts: p.gifts + giftsToAdd,
-                    tonValue: p.tonValue + tonValueToAdd,
-                    isParticipant: true,
-                  }
-                : p,
-            )
+          const existingIndex = prevParticipants.findIndex((p) => p.telegramId === playerToUpdate.telegramId)
+          if (existingIndex !== -1) {
+            return prevParticipants.map((p, idx) => (idx === existingIndex ? playerToUpdate : p))
           } else {
-            // Add new participant
-            const newPlayer = createPlayerObject(user, true, tonValueToAdd, prevParticipants.length)
-            newPlayer.gifts = giftsToAdd // Set initial gifts
-            updatedParticipants = [...prevParticipants, newPlayer]
+            return [...prevParticipants, playerToUpdate]
           }
-          return updatedParticipants // No need to recalculate percentages here, useMemo will handle it
         })
 
         // --- Вызов серверного действия ---
-        console.log("Calling addPlayerToRoom with:", user.id)
-        const { room, error } = await addPlayerToRoom(roomState.id, {
-          ...createPlayerObject(user, true, tonValueToAdd, participantsForGame.length), // Pass data for RPC
-          gifts: giftsToAdd, // Pass giftsToAdd
-          tonValue: tonValueToAdd, // Pass tonValueToAdd
-        })
+        console.log("Calling addPlayerToRoom with:", user.id, "and color:", playerToUpdate.color)
+        const { room, error } = await addPlayerToRoom(roomState.id, playerToUpdate) // Pass the full playerToUpdate object
 
         if (error) {
           // If server action failed, revert optimistic update
-          console.error("Server action failed, reverting optimistic update:", error)
+          console.error("Server action failed, relying on Realtime for correction:", error)
           // A more robust rollback would fetch the actual state from DB,
           // but for now, we can rely on the next Realtime update to correct it.
           // For simplicity, we'll let Realtime handle the eventual consistency.
@@ -435,11 +489,12 @@ export default function RouletteGameClient({
       isAddingPlayer,
       hapticFeedback,
       showAlert,
-      createPlayerObject,
+      createBasePlayerObject,
       participantsForGame, // Keep this dependency for optimistic update logic
-      playerColors,
-      handleError,
       playersInRoom,
+      handleError,
+      getUserDisplayName,
+      getUserPhotoUrl,
     ],
   )
 
