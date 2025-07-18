@@ -96,6 +96,7 @@ export default function RouletteGameClient({
   initialError,
   defaultRoomId,
 }: RouletteGameClientProps) {
+  // Все вызовы хуков должны быть здесь, в начале компонента, безусловно.
   const { user, isReady, hapticFeedback, getUserPhotoUrl, getUserDisplayName, showAlert } = useTelegram()
   const supabase = createClientComponentClient()
 
@@ -270,12 +271,15 @@ export default function RouletteGameClient({
 
   // Calculate participants with percentages using useMemo
   const participantsWithPercentages = useMemo(() => {
-    const totalTon = participantsForGame.reduce((sum, p) => sum + p.tonValue, 0)
-    return participantsForGame.map((p) => ({
+    const currentParticipants = participantsForGame
+    if (currentParticipants.length === 0) return []
+
+    const totalTon = currentParticipants.reduce((sum, p) => sum + p.tonValue, 0)
+    return currentParticipants.map((p) => ({
       ...p,
       percentage: totalTon > 0 ? (p.tonValue / totalTon) * 100 : 0,
     }))
-  }, [participantsForGame])
+  }, [participantsForGame]) // Dependency on the memoized value
 
   // New useEffect for countdown timer logic
   useEffect(() => {
@@ -555,7 +559,18 @@ export default function RouletteGameClient({
     return `${count} подарков`
   }, [])
 
+  // Добавьте этот useEffect где-нибудь после других useEffect'ов
+  useEffect(() => {
+    if (roomState?.status === "waiting" || roomState?.status === "single_player") {
+      if (isAddingPlayer) {
+        console.log("Room status is waiting/single_player, resetting isAddingPlayer to false as a failsafe.")
+        setIsAddingPlayer(false)
+      }
+    }
+  }, [roomState?.status, isAddingPlayer]) // Зависим от isAddingPlayer, чтобы сработать, если он true
+
   // Show loading only during initial Telegram WebApp initialization or if roomState is not loaded
+  // ЭТОТ БЛОК ПЕРЕМЕЩЕН ВНИЗ, ПОСЛЕ ВСЕХ ВЫЗОВОВ ХУКОВ
   if (!isReady || !roomState) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
@@ -566,16 +581,6 @@ export default function RouletteGameClient({
       </div>
     )
   }
-
-  // Добавьте этот useEffect где-нибудь после других useEffect'ов
-  useEffect(() => {
-    if (roomState?.status === "waiting" || roomState?.status === "single_player") {
-      if (isAddingPlayer) {
-        console.log("Room status is waiting/single_player, resetting isAddingPlayer to false as a failsafe.")
-        setIsAddingPlayer(false)
-      }
-    }
-  }, [roomState?.status, isAddingPlayer]) // Зависим от isAddingPlayer, чтобы сработать, если он true
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white relative overflow-hidden touch-manipulation">
