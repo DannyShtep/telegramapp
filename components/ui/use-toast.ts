@@ -2,7 +2,6 @@
 
 // Inspired by react-hot-toast library
 import * as React from "react"
-import { ToastAction } from "@/components/ui/toast"
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
 
@@ -188,50 +187,3 @@ function useToast() {
 }
 
 export { useToast, toast }
-
-// Demo component using the useToast hook
-import { Button } from "@/components/ui/button"
-
-export function useToastDemo() {
-  const { toast } = useToast()
-
-  return (
-    <div className="grid gap-2">
-      <Button
-        variant="outline"
-        onClick={() => {
-          toast({
-            title: "Scheduled: Catch up",
-            description: "Friday, February 10, 2023 at 5:57 PM",
-          })
-        }}
-      >
-        Add to calendar
-      </Button>
-      <Button
-        variant="outline"
-        onClick={() => {
-          toast({
-            title: "Uh oh! Something went wrong.",
-            description: "There was a problem with your request.",
-            action: <ToastAction altText="Try again">Try again</ToastAction>,
-          })
-        }}
-      >
-        Show Toast
-      </Button>
-      <Button
-        variant="outline"
-        onClick={() => {
-          toast({
-            title: "Uh oh! Something went wrong.",
-            description: "There was a problem with your request.",
-            action: <ToastAction altText="Try again">Try again</ToastAction>,
-          })
-        }}
-      >
-        Show Toast
-      </Button>
-    </div>
-  )
-}
