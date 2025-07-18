@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Plus, X, Eye, AlertCircle } from "lucide-react"
 import { useTelegram } from "../hooks/useTelegram"
-import type { TelegramUser } from "../types/telegram"
 import { createClientComponentClient } from "@/lib/supabase"
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js" // ИСПРАВЛЕНО: Импорт типа для payload
 import {
   addPlayerToRoom,
   getPlayersInRoom,
@@ -16,9 +16,10 @@ import {
   getParticipants,
 } from "@/app/actions"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import type { Player } from "@/types/player"
+import type { Player, SupabasePlayer } from "@/types/player" // ИСПРАВЛЕНО: Импорт SupabasePlayer
+import type { TelegramUser } from "@/types/telegram" // ДОБАВЛЕНО: Импорт TelegramUser
 
-// Интерфейс для данных комнаты, включая новое поле countdown_end_time
+// Интерфейс для данных комнаты, включая но��ое поле countdown_end_time
 interface RoomState {
   id: string
   status: "waiting" | "single_player" | "countdown" | "spinning" | "finished"
@@ -231,7 +232,8 @@ export default function RouletteGameClient({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "rooms", filter: `id=eq.${defaultRoomId}` },
-        (payload) => {
+        // ИСПРАВЛЕНО: Явная типизация payload для комнаты
+        (payload: RealtimePostgresChangesPayload<RoomState>) => {
           if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
             console.log("Realtime: Room update received:", payload.new) // Added log
             setRoomState(payload.new as RoomState)
@@ -246,7 +248,8 @@ export default function RouletteGameClient({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "players", filter: `room_id=eq.${defaultRoomId}` },
-        async (payload) => {
+        // ИСПРАВЛЕНО: Явная типизация payload для игроков
+        async (payload: RealtimePostgresChangesPayload<SupabasePlayer>) => {
           console.log("Realtime: Player update received:", payload.eventType, payload.new || payload.old)
           try {
             // Realtime для игроков теперь используется только для обновления участников игры,
