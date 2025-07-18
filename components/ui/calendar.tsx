@@ -2,7 +2,7 @@
 
 import type * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker, type CustomComponents } from "react-day-picker" // Убедитесь, что 'type CustomComponents' импортирован
+import { DayPicker, type CustomComponents } from "react-day-picker" // Эта строка должна быть ОДНА
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
