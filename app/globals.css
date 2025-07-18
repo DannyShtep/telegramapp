@@ -68,10 +68,11 @@
 
 @layer base {
   * {
-    border-color: hsl(var(--border)); /* ИСПРАВЛЕНО: Прямое применение CSS-свойства */
+    border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background)); /* ИСПРАВЛЕНО: Прямое применение CSS-свойства */
+    color: hsl(var(--foreground)); /* ИСПРАВЛЕНО: Прямое применение CSS-свойства */
   }
 }
 
