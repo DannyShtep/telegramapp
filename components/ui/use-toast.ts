@@ -37,10 +37,8 @@ interface State {
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
-\
-const addTo
-and
-removeToasts = (toastId?: string) => {
+
+const addAndRemoveToast = (toastId?: string) => {
   if (toastId) {
     toastTimeouts.delete(toastId)
   }
@@ -63,7 +61,7 @@ export const reducer = (state: State, action: ActionType): State => {
     case "DISMISS_TOAST":
       const { toastId } = action
       if (toastId) {
-        addToasts(toastId)
+        addAndRemoveToast(toastId)
       }
 
       return {
