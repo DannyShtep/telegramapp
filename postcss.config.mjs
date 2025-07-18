@@ -1,9 +1,9 @@
-import tailwindcss from '@tailwindcss/postcss';
-import autoprefixer from 'autoprefixer'; // Убедитесь, что autoprefixer также импортируется
+import tailwindcss from '@tailwindcss/postcss'; // Импортируем сам плагин
+import autoprefixer from 'autoprefixer';
 
 export default {
   plugins: [
-    tailwindcss(), // Вызываем плагин как функцию
-    autoprefixer,   // Просто ссылка на импортированный autoprefixer
+    tailwindcss, // Используем плагин напрямую, без вызова как функции
+    autoprefixer,
   ],
 }
