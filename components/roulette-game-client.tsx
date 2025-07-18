@@ -115,6 +115,7 @@ export default function RouletteGameClient({
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const playersListUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null) // New ref for players list update
+  const resetRoomTimeoutRef = useRef<NodeJS.Timeout | null>(null) // New ref for reset room timeout
 
   // Ref для хранения актуального roomState без добавления его в зависимости useEffect
   const roomStateRef = useRef(roomState)
@@ -162,7 +163,8 @@ export default function RouletteGameClient({
     try {
       const userAvatar = getUserPhotoUrl(user)
       const userDisplayName = getUserDisplayName(user)
-      await ensureUserOnline(defaultRoomId, user.id, user.username, userAvatar, userDisplayName)
+      // ИСПРАВЛЕНО: Передаем пустую строку, если userAvatar равен null
+      await ensureUserOnline(defaultRoomId, user.id, user.username, userAvatar || "", userDisplayName)
     } catch (err: any) {
       console.warn("Online status update failed:", err.message)
     }
@@ -326,6 +328,35 @@ export default function RouletteGameClient({
     }
   }, [roomState?.status, roomState?.countdown_end_time, defaultRoomId, hapticFeedback]) // Dependencies for this specific timer
 
+  // NEW useEffect to automatically reset room if it's in 'finished' state
+  useEffect(() => {
+    if (roomState?.status === "finished") {
+      console.log("[Auto-Reset] Room is in 'finished' state. Scheduling reset...")
+      if (resetRoomTimeoutRef.current) {
+        clearTimeout(resetRoomTimeoutRef.current)
+      }
+      resetRoomTimeoutRef.current = setTimeout(async () => {
+        console.log("[Auto-Reset] Executing resetRoom after 'finished' state detected.")
+        await resetRoom(defaultRoomId)
+        setSpinTrigger(0) // Ensure spin trigger is reset
+        setRotation(0) // Ensure rotation is reset
+      }, 5000) // Reset after 5 seconds
+    } else {
+      if (resetRoomTimeoutRef.current) {
+        console.log("[Auto-Reset] Clearing reset timeout as room status is no longer 'finished'.")
+        clearTimeout(resetRoomTimeoutRef.current)
+        resetRoomTimeoutRef.current = null
+      }
+    }
+    return () => {
+      if (resetRoomTimeoutRef.current) {
+        console.log("[Auto-Reset] Cleanup on unmount/dependency change for reset timeout.")
+        clearTimeout(resetRoomTimeoutRef.current)
+        resetRoomTimeoutRef.current = null
+      }
+    }
+  }, [roomState?.status, defaultRoomId])
+
   // Main game logic useEffect (now only for spinning and winner announcement)
   useEffect(() => {
     const currentRoomState = roomStateRef.current
@@ -345,29 +376,23 @@ export default function RouletteGameClient({
       setSpinTrigger(1) // Mark that spin has been triggered
 
       setTimeout(async () => {
-        console.log("Spin animation complete, checking winner and resetting room.")
-        try {
-          const winner = participantsWithPercentages.find((p) => p.telegramId === currentRoomState.winner_telegram_id)
-          if (winner) {
-            setWinnerDetails(winner)
-            setShowWinnerModal(true)
-            hapticFeedback.notificationOccurred("success")
+        console.log("Spin animation complete, checking winner and showing modal.")
+        const winner = participantsWithPercentages.find((p) => p.telegramId === currentRoomState.winner_telegram_id)
+        if (winner) {
+          setWinnerDetails(winner)
+          setShowWinnerModal(true)
+          hapticFeedback.notificationOccurred("success")
 
-            setTimeout(async () => {
-              setShowWinnerModal(false)
-              console.log("Winner modal closed, resetting room...")
-              await resetRoom(defaultRoomId) // This is where the room should be reset
-              setSpinTrigger(0) // Reset spin trigger for next round
-              setRotation(0) // Reset rotation for next round
-            }, 4000) // Duration for winner modal display
-          } else {
-            console.log("No winner found or winner_telegram_id is null, resetting room.")
-            await resetRoom(defaultRoomId) // This is where the room should be reset
-            setSpinTrigger(0) // Reset spin trigger
-            setRotation(0) // Reset rotation for next round
-          }
-        } catch (err: any) {
-          handleError(err.message, "Spin Completion")
+          // The actual room reset will now be handled by the new useEffect for 'finished' status
+          // This timeout is only for closing the winner modal
+          setTimeout(() => {
+            setShowWinnerModal(false)
+            console.log("Winner modal closed.")
+            // No need to call resetRoom here, the new useEffect will handle it
+          }, 4000) // Duration for winner modal display
+        } else {
+          console.log("No winner found or winner_telegram_id is null. Room will be reset by auto-reset useEffect.")
+          // No need to call resetRoom here, the new useEffect will handle it
         }
       }, 8000) // This timeout should match the CSS transition duration for the final spin (8 seconds)
     } else if (currentRoomState.status !== "spinning" && spinTrigger !== 0) {
