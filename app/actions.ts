@@ -217,7 +217,7 @@ export async function resetRoom(roomId: string) {
       console.error("[Server Action] Error calling reset_room_function RPC:", error)
       return { success: false, error: error.message }
     }
-    console.log("[Server Action] reset_room_function RPC successful. Data:", data)
+    console.log("[Server Action] reset_room_function RPC successful. Returned data:", data) // Added log
     return { success: true, error: null }
   } catch (error: any) {
     console.error("[Server Action] Caught exception in resetRoom RPC:", error.message)

@@ -1,11 +1,12 @@
--- scripts/alter-table-types-v1.sql
+-- scripts/alter-table-types-v2.sql
 
 -- Добавляем новые значения в ENUM, если они еще не существуют
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type typ JOIN pg_namespace nsp ON typ.typnamespace = nsp.oid WHERE typname = 'room_status_enum' AND nsp.nspname = 'public') THEN
-        CREATE TYPE public.room_status_enum AS ENUM ('waiting', 'countdown', 'spinning', 'finished');
+        CREATE TYPE public.room_status_enum AS ENUM ('waiting', 'countdown', 'spinning', 'finished', 'single_player');
     ELSE
         -- Если тип уже существует, проверяем и добавляем новые значения
+        ALTER TYPE public.room_status_enum ADD VALUE IF NOT EXISTS 'single_player';
         ALTER TYPE public.room_status_enum ADD VALUE IF NOT EXISTS 'countdown';
         ALTER TYPE public.room_status_enum ADD VALUE IF NOT EXISTS 'spinning';
         ALTER TYPE public.room_status_enum ADD VALUE IF NOT EXISTS 'finished';

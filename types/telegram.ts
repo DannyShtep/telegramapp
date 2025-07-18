@@ -1,3 +1,5 @@
+// types/telegram.ts
+
 export interface TelegramUser {
   id: number
   first_name: string
@@ -15,9 +17,13 @@ export interface TelegramWebApp {
     query_id?: string
     user?: TelegramUser
     receiver?: TelegramUser
-    chat?: any
-    chat_type?: string
-    chat_instance?: string
+    chat?: {
+      id: number
+      type: string
+      title: string
+      username?: string
+      photo_url?: string
+    }
     start_param?: string
     can_send_after?: number
     auth_date: number
@@ -27,25 +33,26 @@ export interface TelegramWebApp {
   platform: string
   colorScheme: "light" | "dark"
   themeParams: {
-    link_color?: string
-    button_color?: string
-    button_text_color?: string
-    secondary_bg_color?: string
-    hint_color?: string
-    bg_color?: string
-    text_color?: string
+    bg_color: string
+    text_color: string
+    hint_color: string
+    link_color: string
+    button_color: string
+    button_text_color: string
+    secondary_bg_color: string
   }
   isExpanded: boolean
   viewportHeight: number
   viewportStableHeight: number
   headerColor: string
   backgroundColor: string
+  isClosingConfirmationEnabled: boolean
   BackButton: {
     isVisible: boolean
-    show(): void
-    hide(): void
-    onClick(callback: () => void): void
-    offClick(callback: () => void): void
+    onClick: (callback: () => void) => void
+    offClick: (callback: () => void) => void
+    show: () => void
+    hide: () => void
   }
   MainButton: {
     text: string
@@ -54,94 +61,48 @@ export interface TelegramWebApp {
     isVisible: boolean
     isActive: boolean
     isProgressVisible: boolean
-    setText(text: string): void
-    onClick(callback: () => void): void
-    offClick(callback: () => void): void
-    show(): void
-    hide(): void
-    enable(): void
-    disable(): void
-    showProgress(leaveActive?: boolean): void
-    hideProgress(): void
-    setParams(params: {
+    setText: (text: string) => void
+    onClick: (callback: () => void) => void
+    offClick: (callback: () => void) => void
+    show: () => void
+    hide: () => void
+    enable: () => void
+    disable: () => void
+    showProgress: (leaveActive?: boolean) => void
+    hideProgress: () => void
+    setParams: (params: {
       text?: string
       color?: string
       text_color?: string
-      is_active?: boolean
       is_visible?: boolean
-    }): void
+      is_active?: boolean
+    }) => void
   }
   HapticFeedback: {
-    impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void
-    notificationOccurred(type: "error" | "success" | "warning"): void
-    selectionChanged(): void
+    impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void
+    notificationOccurred: (type: "error" | "success" | "warning") => void
+    selectionChanged: () => void
   }
-  CloudStorage: {
-    setItem(key: string, value: string, callback?: (error: string | null, success: boolean) => void): void
-    getItem(key: string, callback: (error: string | null, value: string | null) => void): void
-    getItems(keys: string[], callback: (error: string | null, values: Record<string, string>) => void): void
-    removeItem(key: string, callback?: (error: string | null, success: boolean) => void): void
-    removeItems(keys: string[], callback?: (error: string | null, success: boolean) => void): void
-    getKeys(callback: (error: string | null, keys: string[]) => void): void
-  }
-  ready(): void
-  expand(): void
-  close(): void
-  sendData(data: string): void
-  openLink(url: string, options?: { try_instant_view?: boolean }): void
-  openTelegramLink(url: string): void
-  openInvoice(url: string, callback?: (status: string) => void): void
-  showPopup(
+  isVersionAtLeast: (version: string) => boolean
+  setHeaderColor: (color: "bg_color" | "secondary_bg_color" | string) => void
+  setBackgroundColor: (color: "bg_color" | "secondary_bg_color" | string) => void
+  showAlert: (message: string, callback?: () => void) => void
+  showConfirm: (message: string, callback?: (confirmed: boolean) => void) => void
+  showPopup: (
     params: {
       title?: string
       message: string
-      buttons?: Array<{
-        id?: string
-        type?: "default" | "ok" | "close" | "cancel" | "destructive"
-        text?: string
-      }>
+      buttons?: { id?: string; type?: "default" | "destructive" | "cancel"; text?: string }[]
     },
     callback?: (buttonId: string) => void,
-  ): void
-  showAlert(message: string, callback?: () => void): void
-  showConfirm(message: string, callback?: (confirmed: boolean) => void): void
-  showScanQrPopup(
-    params: {
-      text?: string
-    },
-    callback?: (text: string) => boolean,
-  ): void
-  closeScanQrPopup(): void
-  readTextFromClipboard(callback?: (text: string) => void): void
-  requestWriteAccess(callback?: (granted: boolean) => void): void
-  requestContact(callback?: (granted: boolean, contact?: any) => void): void
-  isVersionAtLeast(version: string): boolean
-  disableVerticalSwipes(disable?: boolean): void
-}
-
-// Расширенные типы для лучшей типизации
-export interface TelegramTheme {
-  bg_color: string
-  text_color: string
-  hint_color: string
-  link_color: string
-  button_color: string
-  button_text_color: string
-  secondary_bg_color: string
-}
-
-export interface TelegramInitData {
-  user?: TelegramUser
-  chat_instance?: string
-  chat_type?: "sender" | "private" | "group" | "supergroup" | "channel"
-  start_param?: string
-  auth_date: number
-  hash: string
+  ) => void
+  expand: () => void
+  close: () => void
 }
 
 declare global {
   interface Window {
-    Telegram?: {
+    Telegram: {
       WebApp: TelegramWebApp
     }
   }

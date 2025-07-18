@@ -1,4 +1,4 @@
--- rpc-add-player-and-update-room-v1.sql
+-- rpc-add-player-and-update-room-v2.sql
 CREATE OR REPLACE FUNCTION public.add_player_and_update_room(
     p_room_id text,
     p_telegram_id bigint,

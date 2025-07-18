@@ -231,7 +231,7 @@ export default function RouletteGameClient({
         { event: "*", schema: "public", table: "rooms", filter: `id=eq.${defaultRoomId}` },
         (payload) => {
           if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
-            console.log("Realtime: Room update received:", payload.new)
+            console.log("Realtime: Room update received:", payload.new) // Added log
             setRoomState(payload.new as RoomState)
           }
         },
@@ -356,13 +356,13 @@ export default function RouletteGameClient({
             setTimeout(async () => {
               setShowWinnerModal(false)
               console.log("Winner modal closed, resetting room...")
-              await resetRoom(defaultRoomId)
+              await resetRoom(defaultRoomId) // This is where the room should be reset
               setSpinTrigger(0) // Reset spin trigger for next round
               setRotation(0) // Reset rotation for next round
             }, 4000) // Duration for winner modal display
           } else {
             console.log("No winner found or winner_telegram_id is null, resetting room.")
-            await resetRoom(defaultRoomId)
+            await resetRoom(defaultRoomId) // This is where the room should be reset
             setSpinTrigger(0) // Reset spin trigger
             setRotation(0) // Reset rotation for next round
           }

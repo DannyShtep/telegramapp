@@ -1,133 +1,135 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useCallback } from "react"
+import type { TelegramUser, TelegramWebApp } from "../types/telegram"
 
-// Объявляем интерфейс для Telegram WebApp
-declare global {
-  interface Window {
-    Telegram: {
-      WebApp: {
-        initData: string
-        initDataUnsafe: {
-          query_id?: string
-          user?: {
-            id: number
-            first_name: string
-            last_name?: string
-            username?: string
-            language_code?: string
-            is_bot?: boolean
-            is_premium?: boolean
-            photo_url?: string
-          }
-          receiver?: {
-            id: number
-            first_name: string
-            last_name?: string
-            username?: string
-            photo_url?: string
-          }
-          chat?: {
-            id: number
-            type: string
-            title?: string
-            username?: string
-            photo_url?: string
-          }
-          start_param?: string
-          can_send_after?: number
-          auth_date: number
-          hash: string
-        }
-        ready: () => void
-        expand: () => void
-        close: () => void
-        MainButton: {
-          text: string
-          color: string
-          textColor: string
-          isVisible: boolean
-          isActive: boolean
-          setText: (text: string) => void
-          show: () => void
-          hide: () => void
-          enable: () => void
-          disable: () => void
-          onClick: (callback: () => void) => void
-          offClick: (callback: () => void) => void
-        }
-        BackButton: {
-          isVisible: boolean
-          show: () => void
-          hide: () => void
-          onClick: (callback: () => void) => void
-          offClick: (callback: () => void) => void
-        }
-        HapticFeedback: {
-          impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void
-          notificationOccurred: (type: "error" | "success" | "warning") => void
-          selectionChanged: () => void
-        }
-        showAlert: (message: string, callback?: () => void) => void
-        showConfirm: (message: string, callback?: (confirmed: boolean) => void) => void
-        showPopup: (params: any, callback?: (id?: string) => void) => void
-        onEvent: (eventType: string, callback: (...args: any[]) => void) => void
-        offEvent: (eventType: string, callback: (...args: any[]) => void) => void
-      }
-    }
-  }
+interface UseTelegramResult {
+  webApp: TelegramWebApp | null
+  user: TelegramUser | null
+  isReady: boolean
+  hapticFeedback: TelegramWebApp["HapticFeedback"]
+  showAlert: TelegramWebApp["showAlert"]
+  showConfirm: TelegramWebApp["showConfirm"]
+  showPopup: TelegramWebApp["showPopup"]
+  expand: TelegramWebApp["expand"]
+  close: TelegramWebApp["close"]
+  getUserPhotoUrl: (user: TelegramUser) => string | null
+  getUserDisplayName: (user: TelegramUser) => string
 }
 
-export interface TelegramUser {
-  id: number
-  first_name: string
-  last_name?: string
-  username?: string
-  language_code?: string
-  is_bot?: boolean
-  is_premium?: boolean
-  photo_url?: string
-}
-
-export function useTelegram() {
+export function useTelegram(): UseTelegramResult {
+  const [webApp, setWebApp] = useState<TelegramWebApp | null>(null)
   const [user, setUser] = useState<TelegramUser | null>(null)
-  const [webApp, setWebApp] = useState<typeof window.Telegram.WebApp | null>(null)
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Telegram && window.Telegram.WebApp) {
       const app = window.Telegram.WebApp
       app.ready()
-      app.expand() // Expand the WebApp to full screen
+      app.expand() // Expand the Web App to full screen
 
       setWebApp(app)
-
-      if (app.initDataUnsafe && app.initDataUnsafe.user) {
-        setUser(app.initDataUnsafe.user)
-      }
+      setUser(app.initDataUnsafe.user || null)
       setIsReady(true)
+
+      // Log initial theme and viewport info
+      console.log("Telegram WebApp initialized:", {
+        platform: app.platform,
+        colorScheme: app.colorScheme,
+        viewportHeight: app.viewportHeight,
+        viewportStableHeight: app.viewportStableHeight,
+        isExpanded: app.isExpanded,
+        initDataUnsafe: app.initDataUnsafe,
+      })
+
+      // Set header and background colors based on theme
+      app.setHeaderColor("secondary_bg_color")
+      app.setBackgroundColor("bg_color")
+
+      // Event listeners for theme and viewport changes
+      const handleThemeChange = () => {
+        console.log("Theme changed:", app.themeParams)
+        app.setHeaderColor("secondary_bg_color")
+        app.setBackgroundColor("bg_color")
+      }
+
+      const handleViewportChanged = () => {
+        console.log("Viewport changed:", {
+          isExpanded: app.isExpanded,
+          viewportHeight: app.viewportHeight,
+          viewportStableHeight: app.viewportStableHeight,
+        })
+        if (!app.isExpanded) {
+          app.expand() // Re-expand if it somehow collapses
+        }
+      }
+
+      app.onEvent("themeChanged", handleThemeChange)
+      app.onEvent("viewportChanged", handleViewportChanged)
+
+      return () => {
+        app.offEvent("themeChanged", handleThemeChange)
+        app.offEvent("viewportChanged", handleViewportChanged)
+      }
     } else {
-      // Fallback for development outside Telegram
-      console.warn("Telegram WebApp is not available. Using mock data.")
+      console.warn("Telegram WebApp script not found or not ready.")
+      // Fallback for development outside Telegram environment
       setWebApp(null)
       setUser({
         id: 123456789,
-        first_name: "Dev",
-        username: "dev_user",
-        photo_url: "https://via.placeholder.com/150/0000FF/FFFFFF?text=DEV",
+        first_name: "Test",
+        last_name: "User",
+        username: "testuser",
+        language_code: "en",
+        is_bot: false,
+        is_premium: true,
+        photo_url: "https://via.placeholder.com/150/0000FF/FFFFFF?text=TU", // Placeholder image
       })
       setIsReady(true)
     }
   }, [])
 
-  const getUserPhotoUrl = (telegramUser: TelegramUser): string | null => {
-    // Telegram WebApp initDataUnsafe.user.photo_url is often not available or is a small thumbnail.
-    // For a real app, you'd typically fetch a larger photo via Telegram Bot API or a proxy.
-    // For now, we'll use the provided one or a placeholder.
-    return telegramUser.photo_url || null
+  const hapticFeedback = webApp?.HapticFeedback || {
+    impactOccurred: (style) => console.log(`Haptic: ${style} impact`),
+    notificationOccurred: (type) => console.log(`Haptic: ${type} notification`),
+    selectionChanged: () => console.log("Haptic: selection changed"),
   }
 
-  const getUserDisplayName = (telegramUser: TelegramUser): string => {
+  const showAlert =
+    webApp?.showAlert ||
+    ((message, callback) => {
+      alert(message)
+      callback?.()
+    })
+
+  const showConfirm =
+    webApp?.showConfirm ||
+    ((message, callback) => {
+      const result = confirm(message)
+      callback?.(result)
+    })
+
+  const showPopup =
+    webApp?.showPopup ||
+    ((params, callback) => {
+      console.log("Showing popup:", params)
+      alert(params.message)
+      callback?.("ok") // Simulate 'ok' button click
+    })
+
+  const expand = webApp?.expand || (() => console.log("WebApp expand called (mock)"))
+  const close = webApp?.close || (() => console.log("WebApp close called (mock)"))
+
+  const getUserPhotoUrl = useCallback((telegramUser: TelegramUser): string | null => {
+    // Telegram WebApp does not directly provide a high-res user photo URL in initDataUnsafe.user
+    // The photo_url in initDataUnsafe.user is often a low-res placeholder or not present.
+    // For actual user photos, you'd typically need to use the Bot API's getUserProfilePhotos method
+    // on your backend, which is outside the scope of the WebApp itself.
+    // For now, we'll use the provided photo_url if it exists, otherwise a generic placeholder.
+    return telegramUser.photo_url || null
+  }, [])
+
+  const getUserDisplayName = useCallback((telegramUser: TelegramUser): string => {
     if (telegramUser.username) {
       return `@${telegramUser.username}`
     }
@@ -135,70 +137,18 @@ export function useTelegram() {
       return `${telegramUser.first_name} ${telegramUser.last_name}`
     }
     return telegramUser.first_name || `User ${telegramUser.id}`
-  }
-
-  // Enhanced HapticFeedback fallback with try-catch for Telegram's internal calls
-  const hapticFeedback = useMemo(() => {
-    return {
-      impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => {
-        try {
-          if (webApp?.HapticFeedback?.impactOccurred) {
-            webApp.HapticFeedback.impactOccurred(style)
-          } else {
-            // console.log(`Haptic: ${style} impact (mock)`);
-          }
-        } catch (e) {
-          console.warn("Telegram HapticFeedback.impactOccurred failed:", e)
-        }
-      },
-      notificationOccurred: (type: "error" | "success" | "warning") => {
-        try {
-          if (webApp?.HapticFeedback?.notificationOccurred) {
-            webApp.HapticFeedback.notificationOccurred(type)
-          } else {
-            // console.log(`Haptic: ${type} notification (mock)`);
-          }
-        } catch (e) {
-          console.warn("Telegram HapticFeedback.notificationOccurred failed:", e)
-        }
-      },
-      selectionChanged: () => {
-        try {
-          if (webApp?.HapticFeedback?.selectionChanged) {
-            webApp.HapticFeedback.selectionChanged()
-          } else {
-            // console.log("Haptic: selection changed (mock)");
-          }
-        } catch (e) {
-          console.warn("Telegram HapticFeedback.selectionChanged failed:", e)
-        }
-      },
-    }
-  }, [webApp]) // Dependency on webApp
+  }, [])
 
   return {
     webApp,
     user,
     isReady,
-    hapticFeedback, // Use the memoized hapticFeedback
-    showAlert:
-      webApp?.showAlert ||
-      ((message, cb) => {
-        alert(message)
-        cb?.()
-      }),
-    showConfirm:
-      webApp?.showConfirm ||
-      ((message, cb) => {
-        const confirmed = confirm(message)
-        cb?.(confirmed)
-      }),
-    showPopup:
-      webApp?.showPopup ||
-      ((params, cb) => {
-        console.log("Mock showPopup:", params)
-        cb?.("mock_button_id")
-      }),
+    hapticFeedback,
+    showAlert,
+    showConfirm,
+    showPopup,
+    expand,
+    close,
     getUserPhotoUrl,
     getUserDisplayName,
   }
