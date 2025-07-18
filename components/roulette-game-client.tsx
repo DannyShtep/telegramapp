@@ -747,7 +747,7 @@ export default function RouletteGameClient({
               roomState.status === "finished" ||
               (roomState.status === "countdown" && countdownSeconds <= 3)
             console.log(
-              `[Button 1] Disabled: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
+              `DEBUG: 'Добавить гифт' button disabled state: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
             )
             return isDisabled
           })()}
@@ -758,7 +758,7 @@ export default function RouletteGameClient({
 
         <Button
           className={`flex-1 font-medium py-3 rounded-xl flex items-center justify-center touch-manipulation transition-all duration-200 ${
-            isAddingPlayer || (roomState.status === "countdown" && countdownSeconds <= 3) // Используем новое состояние
+            isAddingPlayer || (roomState.status === "countdown" && countdownSeconds <= 3)
               ? "bg-gray-600 text-gray-400 cursor-not-allowed"
               : "bg-green-400 hover:bg-green-500 text-black"
           }`}
@@ -773,7 +773,7 @@ export default function RouletteGameClient({
               roomState.status === "finished" ||
               (roomState.status === "countdown" && countdownSeconds <= 3)
             console.log(
-              `[Button 2] Disabled: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
+              `DEBUG: 'Добавить ТОН' button disabled state: ${isDisabled}, isAddingPlayer: ${isAddingPlayer}, roomStatus: ${roomState.status}, countdown: ${countdownSeconds}`,
             )
             return isDisabled
           })()}
