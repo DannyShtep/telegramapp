@@ -651,7 +651,7 @@ export default function RouletteGameClient({
           }}
         >
           {roomState.status === "waiting" ? (
-            <div className="w-full h-full bg-gray-600 rounded-full relative">
+            <div className="w-full h-full bg-gray-700 border border-gray-500 rounded-full relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
                 <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
               </div>
@@ -669,7 +669,7 @@ export default function RouletteGameClient({
                 />
               </div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
-                <span className="text-gray-300 text-sm font-medium">Ждем второго игрока</span>
+                <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
               </div>
             </div>
           ) : (
@@ -724,10 +724,10 @@ export default function RouletteGameClient({
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-black rounded-full flex items-center justify-center border-0">
                 {roomState.status === "countdown" ? (
                   <span className="text-green-400 text-lg font-mono font-bold">{countdownSeconds}</span>
+                ) : roomState.status === "spinning" ? (
+                  <span className="text-gray-300 text-sm font-medium">Крутим!</span>
                 ) : (
-                  <span className="text-gray-300 text-sm font-medium">
-                    {roomState.status === "spinning" ? "Крутим!" : "Готов к игре"}
-                  </span>
+                  <span className="text-gray-300 text-sm font-medium">Ожидание игроков</span>
                 )}
               </div>
             </>
