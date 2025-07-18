@@ -132,7 +132,7 @@ export default function RouletteGameClient({
     (message: string, context: string) => {
       console.error(`[${context}] Error:`, message)
       setError(message)
-      setIsAddingPlayer(false) // Сбрасываем состояние загрузки
+      // isAddingPlayer is now handled in finally block
       hapticFeedback.notificationOccurred("error")
       setTimeout(() => setError(null), 5000)
     },
@@ -356,6 +356,8 @@ export default function RouletteGameClient({
         return
       }
 
+      setIsAddingPlayer(true) // Set to true immediately when function starts
+
       try {
         if (!user || !roomState || !supabase) {
           handleError("Отсутствуют необходимые данные", "Add Player")
@@ -382,7 +384,6 @@ export default function RouletteGameClient({
           }
         }
 
-        setIsAddingPlayer(true)
         setError(null)
         hapticFeedback.impactOccurred("medium")
 
@@ -466,31 +467,27 @@ export default function RouletteGameClient({
         const { room, error } = await addPlayerToRoom(roomState.id, playerToUpdate) // Pass the full playerToUpdate object
 
         if (error) {
-          // If server action failed, revert optimistic update
           console.error("Server action failed, relying on Realtime for correction:", error)
-          // A more robust rollback would fetch the actual state from DB,
-          // but for now, we can rely on the next Realtime update to correct it.
-          // For simplicity, we'll let Realtime handle the eventual consistency.
           handleError(error, "Add Player to Room")
-          return
+          // No return here, let finally handle the state reset
         }
         console.log("addPlayerToRoom RPC returned room:", room)
         // Realtime subscriptions will automatically update UI, confirming optimistic update
       } catch (error: any) {
         handleError(error.message, "Add Player Exception")
       } finally {
-        setIsAddingPlayer(false) // Reset loading state
+        setIsAddingPlayer(false) // Always reset loading state
       }
     },
     [
       user,
       roomState,
       supabase,
-      isAddingPlayer,
+      // isAddingPlayer, // Removed from dependencies
       hapticFeedback,
       showAlert,
       createBasePlayerObject,
-      participantsForGame, // Keep this dependency for optimistic update logic
+      participantsForGame,
       playersInRoom,
       handleError,
       getUserDisplayName,
