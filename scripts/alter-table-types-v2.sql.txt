@@ -1,18 +1,17 @@
--- Шаг 1: Удалить внешний ключ из таблицы players
--- Если этот внешний ключ уже был удален или его нет, эта команда может выдать предупреждение, но не ошибку.
-ALTER TABLE players
-DROP CONSTRAINT IF EXISTS players_room_id_fkey;
+-- Добавляем тип для статуса комнаты, если он еще не существует
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'room_status_type') THEN
+        CREATE TYPE public.room_status_type AS ENUM (
+            'waiting',
+            'single_player',
+            'countdown',
+            'spinning',
+            'finished'
+        );
+    END IF;
+END $$;
 
--- Шаг 2: Изменить тип столбца id в таблице rooms на TEXT
-ALTER TABLE rooms
-ALTER COLUMN id TYPE TEXT;
-
--- Шаг 3: Изменить тип столбца room_id в таблице players на TEXT
-ALTER TABLE players
-ALTER COLUMN room_id TYPE TEXT;
-
--- Шаг 4: Добавить внешний ключ обратно в таблицу players
--- Убедитесь, что имена столбцов и таблиц совпадают с вашими.
-ALTER TABLE players
-ADD CONSTRAINT players_room_id_fkey
-FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE;
+-- Изменяем столбец status в таблице rooms на новый тип
+ALTER TABLE public.rooms
+ALTER COLUMN status TYPE public.room_status_type
+USING status::public.room_status_type;
