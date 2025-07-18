@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import useEmblaCarousel, { type UseEmblaCarouselType } from "embla-carousel-react"
-import type { EmblaOptionsType } from "embla-carousel" // ИСПРАВЛЕНО: Импорт EmblaOptionsType из 'embla-carousel'
+import useEmblaCarousel, { type UseEmblaCarouselType, type EmblaOptionsType } from "embla-carousel-react" // ИСПРАВЛЕНО: Убран 'type' перед EmblaOptionsType
 import { ArrowLeft, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -30,7 +29,7 @@ function useCarousel() {
 }
 
 type CarouselProps = {
-  opts?: EmblaOptionsType
+  opts?: EmblaOptionsType // Исправлен тип для opts
   orientation?: "horizontal" | "vertical"
   setApi?: (api: UseEmblaCarouselType[1]) => void
 } & React.ComponentPropsWithoutRef<"div">
