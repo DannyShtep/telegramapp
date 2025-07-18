@@ -564,7 +564,7 @@ export default function RouletteGameClient({
                       <img
                         src={player.avatar || "/placeholder.svg?height=32&width=32"}
                         alt={player.displayName || "Player avatar"}
-                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                        className="w-8 h-8 rounded-full object-cover"
                         style={{ border: player.isParticipant ? `2px solid ${player.color}` : "2px solid #4b5563" }}
                       />
                       <div className="flex-1">
