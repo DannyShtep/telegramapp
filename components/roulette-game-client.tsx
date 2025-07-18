@@ -70,7 +70,7 @@ export default function RouletteGameClient({
 
   const playerColors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"]
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const countdownSpinIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  // Removed countdownSpinIntervalRef as wheel should be static during countdown
   const onlineUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Ref для хранения актуального roomState без добавления его в зависимости useEffect
@@ -127,7 +127,7 @@ export default function RouletteGameClient({
     } catch (err: any) {
       console.warn("Online status update failed:", err.message)
     }
-  }, [user, defaultRoomId, getUserPhotoUrl, getUserDisplayName]) // Теперь не зависит от roomState
+  }, [user, defaultRoomId, getUserPhotoUrl, getUserDisplayName])
 
   // Отдельный useEffect для интервала обновления онлайн-статуса
   useEffect(() => {
@@ -144,7 +144,7 @@ export default function RouletteGameClient({
         onlineUpdateIntervalRef.current = null
       }
     }
-  }, [isReady, user, defaultRoomId, updateOnlineStatus]) // Зависит только от стабильных значений и useCallback
+  }, [isReady, user, defaultRoomId, updateOnlineStatus])
 
   // Подписка на Realtime изменения комнаты и игроков (теперь с минимальными зависимостями)
   useEffect(() => {
@@ -199,7 +199,7 @@ export default function RouletteGameClient({
       supabase.removeChannel(roomSubscription)
       supabase.removeChannel(playerSubscription)
     }
-  }, [isReady, supabase, defaultRoomId]) // Минимальные зависимости для подписок
+  }, [isReady, supabase, defaultRoomId])
 
   // Calculate participants with percentages using useMemo
   const participantsWithPercentages = useMemo(() => {
@@ -224,7 +224,7 @@ export default function RouletteGameClient({
         const now = Date.now()
         const remainingSeconds = Math.max(0, Math.floor((endTime - now) / 1000))
         setCountdownSeconds(remainingSeconds)
-        console.log(`[Countdown Timer] Now: ${now}, Remaining: ${remainingSeconds}`)
+        console.log(`[Countdown Timer] Now: ${now}, EndTime: ${endTime}, Remaining: ${remainingSeconds}`)
 
         if (remainingSeconds <= 0) {
           clearInterval(countdownIntervalRef.current!)
@@ -239,7 +239,7 @@ export default function RouletteGameClient({
     } else {
       setCountdownSeconds(0) // Reset timer if not in countdown mode
       if (countdownIntervalRef.current) {
-        console.log("[Countdown Timer] Clearing interval due to status change.")
+        console.log("[Countdown Timer] Clearing interval due to status change or no end time.")
         clearInterval(countdownIntervalRef.current)
         countdownIntervalRef.current = null
       }
@@ -255,7 +255,7 @@ export default function RouletteGameClient({
     }
   }, [roomState?.status, roomState?.countdown_end_time, defaultRoomId, hapticFeedback]) // Dependencies for this specific timer
 
-  // Main game logic useEffect (now without countdown timer logic)
+  // Main game logic useEffect (now only for spinning and winner announcement)
   useEffect(() => {
     const currentRoomState = roomStateRef.current
     if (!currentRoomState) return
@@ -266,23 +266,6 @@ export default function RouletteGameClient({
       "Spin Trigger:",
       spinTrigger,
     )
-
-    // --- Countdown animation logic ---
-    if (currentRoomState.status === "countdown") {
-      if (!countdownSpinIntervalRef.current) {
-        console.log("Starting countdown spin animation.")
-        countdownSpinIntervalRef.current = setInterval(() => {
-          setRotation((prev) => prev + 2) // Непрерывное вращение
-        }, 50)
-      }
-    } else {
-      // If status is not countdown, stop the animation
-      if (countdownSpinIntervalRef.current) {
-        console.log("Stopping countdown spin animation.")
-        clearInterval(countdownSpinIntervalRef.current)
-        countdownSpinIntervalRef.current = null
-      }
-    }
 
     // --- Handle final wheel spin and winner announcement ---
     if (currentRoomState.status === "spinning" && spinTrigger === 0) {
@@ -324,13 +307,9 @@ export default function RouletteGameClient({
       setRotation(0) // Ensure rotation is reset if game state changes unexpectedly
     }
 
-    // Cleanup for countdown spin animation
+    // No cleanup for countdownSpinIntervalRef needed here as it's removed.
     return () => {
-      if (countdownSpinIntervalRef.current) {
-        console.log("Cleaning up countdown spin animation interval.")
-        clearInterval(countdownSpinIntervalRef.current)
-        countdownSpinIntervalRef.current = null
-      }
+      // Any other cleanup for this specific effect can go here.
     }
   }, [roomState?.status, spinTrigger, defaultRoomId, hapticFeedback, handleError, participantsWithPercentages]) // Dependencies for main game logic
 
@@ -461,8 +440,6 @@ export default function RouletteGameClient({
       playerColors,
       handleError,
       playersInRoom,
-      // initialRoomState, // No longer needed for rollback, relying on Realtime
-      // initialParticipantsForGame, // No longer needed for rollback, relying on Realtime
     ],
   )
 
