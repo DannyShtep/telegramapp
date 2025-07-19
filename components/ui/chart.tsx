@@ -17,7 +17,6 @@ import {
   Scatter,
   XAxis,
   YAxis,
-  type RechartsFunction,
 } from "recharts"
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -25,6 +24,11 @@ import { Card } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+
+// RechartsFunction не экспортируется из 'recharts', поэтому мы удаляем его импорт.
+// Если вам нужен функциональный тип для customDot или customLabel,
+// вы можете определить его вручную или использовать 'any'.
+// Например: type RechartsFunction = (...args: any[]) => any;
 
 // Helper to generate a unique ID
 const generateId = () => Math.random().toString(36).substring(2, 15)
@@ -69,8 +73,8 @@ interface ChartProps extends React.ComponentProps<typeof ChartContainer> {
   brushEnd?: number
   onBrushChange?: (startIndex: number, endIndex: number) => void
   customTooltip?: React.ComponentType<any>
-  customDot?: RechartsFunction
-  customLabel?: RechartsFunction
+  customDot?: (...args: any[]) => any // Используем более общий тип для функций
+  customLabel?: (...args: any[]) => any // Используем более общий тип для функций
   className?: string
 }
 
@@ -101,28 +105,20 @@ const Chart = React.forwardRef<HTMLDivElement, ChartProps>(
     },
     ref,
   ) => {
+    const chartId = React.useMemo(generateId, [])
+
     const ChartComponent = chartComponents[chartType]
     const SeriesComponent = seriesComponents[seriesType]
 
-    if (!ChartComponent || !SeriesComponent) {
-      console.error(`Unsupported chartType: ${chartType} or seriesType: ${seriesType}`)
-      return null
-    }
-
-    const chartId = React.useMemo(generateId, [])
-
-    const defaultTooltipContent = React.useCallback(
-      (props: any) => (
-        <ChartTooltipContent
-          hideLabel={chartType === "PieChart" || chartType === "RadialBarChart"}
-          className="[&.recharts-tooltip-wrapper]:!bg-background [&.recharts-tooltip-wrapper]:!border-border [&.recharts-tooltip-wrapper]:!text-foreground"
-          {...props}
-        />
-      ),
-      [chartType],
+    const defaultTooltipContent = (props: any) => (
+      <ChartTooltipContent
+        hideLabel={chartType === "PieChart" || chartType === "RadialBarChart"}
+        className="[&.recharts-tooltip-wrapper]:!bg-background [&.recharts-tooltip-wrapper]:!border-border [&.recharts-tooltip-wrapper]:!text-foreground"
+        {...props}
+      />
     )
 
-    const renderSeries = React.useCallback(() => {
+    const renderSeries = () => {
       return Object.entries(chartConfig).map(([key, { label, color, type, ...rest }]) => {
         if (type === seriesType) {
           return (
@@ -140,7 +136,12 @@ const Chart = React.forwardRef<HTMLDivElement, ChartProps>(
         }
         return null
       })
-    }, [chartConfig, seriesType, customDot, customLabel])
+    }
+
+    if (!ChartComponent || !SeriesComponent) {
+      console.error(`Unsupported chartType: ${chartType} or seriesType: ${seriesType}`)
+      return null
+    }
 
     return (
       <ChartContainer ref={ref} config={chartConfig} className={cn("min-h-[200px] w-full", className)} {...props}>
