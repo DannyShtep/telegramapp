@@ -1,5 +1,11 @@
 "use client"
 
+import { ChartTooltip } from "@/components/ui/chart"
+
+import { ChartTooltipContent } from "@/components/ui/chart"
+
+import { ChartContainer } from "@/components/ui/chart"
+
 import * as React from "react"
 import {
   CartesianGrid,
@@ -18,17 +24,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+// УДАЛЕНО: import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+// Эти компоненты определены в этом же файле и не требуют импорта из него самого.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-
-// RechartsFunction не экспортируется из 'recharts', поэтому мы удаляем его импорт.
-// Если вам нужен функциональный тип для customDot или customLabel,
-// вы можете определить его вручную или использовать 'any'.
-// Например: type RechartsFunction = (...args: any[]) => any;
 
 // Helper to generate a unique ID
 const generateId = () => Math.random().toString(36).substring(2, 15)
@@ -55,9 +57,22 @@ const seriesComponents = {
 type ChartType = keyof typeof chartComponents
 type SeriesType = keyof typeof seriesComponents
 
+// ChartConfig должен быть определен где-то, если он используется как тип.
+// Если он не экспортируется из другого файла, его можно определить здесь.
+// Для простоты, пока оставим 'any', если его определение не предоставлено.
+interface ChartConfig {
+  // Пример структуры ChartConfig, если она не импортируется
+  [key: string]: {
+    label: string
+    color: string
+    type: SeriesType
+    // Добавьте другие свойства, если они есть в вашем ChartConfig
+  }
+}
+
 interface ChartProps extends React.ComponentProps<typeof ChartContainer> {
   data: Record<string, any>[]
-  chartConfig: any // ChartConfig
+  chartConfig: ChartConfig // Используем определенный выше тип
   chartType?: ChartType
   seriesType?: SeriesType
   showGrid?: boolean
