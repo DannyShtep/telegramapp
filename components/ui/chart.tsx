@@ -18,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -57,7 +57,7 @@ type SeriesType = keyof typeof seriesComponents
 
 interface ChartProps extends React.ComponentProps<typeof ChartContainer> {
   data: Record<string, any>[]
-  chartConfig: ChartConfig
+  chartConfig: any // ChartConfig
   chartType?: ChartType
   seriesType?: SeriesType
   showGrid?: boolean
